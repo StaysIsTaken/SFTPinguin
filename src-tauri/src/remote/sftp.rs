@@ -66,8 +66,28 @@ impl client::Handler for ClientHandler {
                 Ok(true)
             }
             HostKeyStatus::Unknown => {
-                outcome.status = Some("unknown");
-                Ok(false)
+                // Not in our store: maybe the user already trusts it in OpenSSH.
+                let openssh = match key {
+                    PublicKeyOrCertificate::PublicKey { key, .. } => {
+                        check_openssh_known_hosts(&self.host, self.port, key)
+                    }
+                    PublicKeyOrCertificate::Certificate(_) => None,
+                };
+                match openssh {
+                    Some(Ok(())) => {
+                        outcome.status = Some("openssh");
+                        Ok(true)
+                    }
+                    Some(Err(prev)) => {
+                        outcome.status = Some("changed");
+                        outcome.previous = Some(prev);
+                        Ok(false)
+                    }
+                    None => {
+                        outcome.status = Some("unknown");
+                        Ok(false)
+                    }
+                }
             }
             HostKeyStatus::Changed(prev) => {
                 outcome.status = Some("changed");
@@ -75,6 +95,74 @@ impl client::Handler for ClientHandler {
                 Ok(false)
             }
         }
+    }
+}
+
+/// Looks the host key up in the user's OpenSSH `~/.ssh/known_hosts` (desktop only).
+/// `Some(Ok)` = known and matching, `Some(Err(previous))` = OpenSSH knows a different key.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn check_openssh_known_hosts(
+    host: &str,
+    port: u16,
+    key: &keys::PublicKey,
+) -> Option<Result<(), HostKey>> {
+    let entries = keys::known_hosts::known_host_keys(host, port).ok()?;
+    let same_algorithm: Vec<_> = entries
+        .into_iter()
+        .filter(|(_, k)| k.algorithm() == key.algorithm())
+        .collect();
+    if same_algorithm.is_empty() {
+        return None;
+    }
+    if same_algorithm.iter().any(|(_, k)| k == key) {
+        return Some(Ok(()));
+    }
+    let (line, prev) = &same_algorithm[0];
+    log::warn!("host key of {host}:{port} differs from ~/.ssh/known_hosts line {line}");
+    Some(Err(HostKey {
+        host: format!("{host} (~/.ssh/known_hosts)"),
+        port,
+        key_type: prev.algorithm().to_string(),
+        fingerprint: prev.fingerprint(HashAlg::Sha256).to_string(),
+        added_at: 0,
+    }))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn check_openssh_known_hosts(
+    _host: &str,
+    _port: u16,
+    _key: &keys::PublicKey,
+) -> Option<Result<(), HostKey>> {
+    None
+}
+
+/// Only modern algorithms. Compared to russh's defaults this drops `ssh-rsa`
+/// host key signatures (SHA-1). Key exchange (incl. post-quantum ML-KEM hybrid and
+/// the "strict kex" Terrapin countermeasure), ciphers (AEAD / CTR) and MACs (SHA-2 only)
+/// already exclude weak choices.
+fn secure_preferred() -> russh::Preferred {
+    use keys::{Algorithm, EcdsaCurve};
+    russh::Preferred {
+        key: std::borrow::Cow::Owned(vec![
+            Algorithm::Ed25519,
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP256,
+            },
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP384,
+            },
+            Algorithm::Ecdsa {
+                curve: EcdsaCurve::NistP521,
+            },
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha512),
+            },
+            Algorithm::Rsa {
+                hash: Some(HashAlg::Sha256),
+            },
+        ]),
+        ..russh::Preferred::DEFAULT
     }
 }
 
@@ -146,6 +234,7 @@ impl SftpFs {
             inactivity_timeout: None,
             keepalive_interval: Some(Duration::from_secs(20)),
             keepalive_max: 3,
+            preferred: secure_preferred(),
             ..Default::default()
         });
         let outcome = Arc::new(Mutex::new(HostKeyOutcome::default()));
@@ -186,6 +275,17 @@ impl SftpFs {
                 });
             }
         };
+
+        // Remember keys that were confirmed via ~/.ssh/known_hosts
+        let adopt = {
+            let o = outcome.lock().unwrap();
+            (o.status == Some("openssh"))
+                .then(|| o.presented.clone())
+                .flatten()
+        };
+        if let Some(key) = adopt {
+            let _ = known_hosts.trust(key);
+        }
 
         authenticate(&mut handle, cfg).await?;
 

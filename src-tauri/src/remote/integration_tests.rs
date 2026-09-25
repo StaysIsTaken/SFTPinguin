@@ -8,6 +8,8 @@
 use crate::error::ErrorCode;
 use crate::known_hosts::KnownHosts;
 use crate::model::{AuthMethod, ConnectConfig, EntryKind, Protocol, Site};
+use crate::tls::CertStore;
+use crate::trust::Trust;
 
 use super::{connect, join, RemoteHandle};
 
@@ -112,9 +114,21 @@ async fn exercise(fs: RemoteHandle, base: &str) {
     fs.close().await;
 }
 
-fn temp_known_hosts() -> KnownHosts {
-    let dir = std::env::temp_dir().join(format!("sftpinguin-kh-{}", uuid::Uuid::new_v4()));
-    KnownHosts::load(dir.join("known_hosts.json"))
+fn temp_trust() -> Trust {
+    let dir = std::env::temp_dir().join(format!("sftpinguin-trust-{}", uuid::Uuid::new_v4()));
+    Trust {
+        hosts: KnownHosts::load(dir.join("known_hosts.json")),
+        certs: CertStore::load(dir.join("trusted_certs.json")),
+    }
+}
+
+/// Pins the certificate presented in a `CertUntrusted` / `CertChanged` error.
+fn pin_cert(trust: &Trust, err: &crate::error::AppError) {
+    let presented = err.details.as_ref().unwrap()["presented"].clone();
+    trust
+        .certs
+        .trust(serde_json::from_value(presented).unwrap())
+        .unwrap();
 }
 
 fn enabled() -> bool {
@@ -122,9 +136,11 @@ fn enabled() -> bool {
     std::env::var("SFTPINGUIN_IT").is_ok()
 }
 
-fn trust_all(kh: &KnownHosts, err: &crate::error::AppError) {
+fn trust_all(trust: &Trust, err: &crate::error::AppError) {
     let presented = err.details.as_ref().unwrap()["presented"].clone();
-    kh.trust(serde_json::from_value(presented).unwrap())
+    trust
+        .hosts
+        .trust(serde_json::from_value(presented).unwrap())
         .unwrap();
 }
 
@@ -134,8 +150,7 @@ async fn sftp_password_and_host_key() {
     if !enabled() {
         return;
     }
-    let dir = std::env::temp_dir().join(format!("sftpinguin-kh-{}", uuid::Uuid::new_v4()));
-    let kh = KnownHosts::load(dir.join("known_hosts.json"));
+    let kh = temp_trust();
     let c = cfg(site(Protocol::Sftp, 2222));
 
     // first connection: unknown host key
@@ -164,15 +179,15 @@ async fn sftp_password_and_host_key() {
     exercise(fs, &home).await;
 
     // changed host key detection
-    let entry = kh.list().remove(0);
-    kh.trust(crate::known_hosts::HostKey {
-        fingerprint: "SHA256:bogus".into(),
-        ..entry
-    })
-    .unwrap();
+    let entry = kh.hosts.list().remove(0);
+    kh.hosts
+        .trust(crate::known_hosts::HostKey {
+            fingerprint: "SHA256:bogus".into(),
+            ..entry
+        })
+        .unwrap();
     let err = connect(&c, &kh).await.err().unwrap();
     assert_eq!(err.code, ErrorCode::HostKeyChanged);
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[tokio::test]
@@ -182,7 +197,7 @@ async fn sftp_key_auth() {
         return;
     }
     let keys = env("SFTPINGUIN_IT_KEYS", "/tmp/sftpinguin-test/ssh");
-    let kh = temp_known_hosts();
+    let kh = temp_trust();
     let mut s = site(Protocol::Sftp, 2222);
     s.auth = AuthMethod::Key;
     s.key_path = Some(format!("{keys}/client_key"));
@@ -225,7 +240,7 @@ async fn ftp_plain() {
     if !enabled() {
         return;
     }
-    let kh = KnownHosts::from_entries(vec![]);
+    let kh = temp_trust();
     let c = cfg(site(Protocol::Ftp, 2121));
     let fs = connect(&c, &kh).await.expect("connect");
     let home = fs.home().await.unwrap();
@@ -248,17 +263,37 @@ async fn ftps_explicit() {
     if !enabled() {
         return;
     }
-    let kh = KnownHosts::from_entries(vec![]);
+    let kh = temp_trust();
     let mut s = site(Protocol::Ftps, 2990);
     s.host = "localhost".into();
-    // self-signed test certificate must be rejected by default ...
+    // a certificate pinned for this host that does not match: possible MITM
+    kh.certs
+        .trust(crate::tls::CertInfo {
+            host: "localhost".into(),
+            port: 2990,
+            fingerprint: "00:11".into(),
+            subject: String::new(),
+            issuer: String::new(),
+            not_before: None,
+            not_after: None,
+            added_at: 0,
+        })
+        .unwrap();
+    let err = connect(&cfg(s.clone()), &kh)
+        .await
+        .err()
+        .expect("must fail");
+    assert_eq!(err.code, ErrorCode::CertChanged, "{err:?}");
+    kh.certs.remove("localhost", 2990).unwrap();
+    // the self-signed test certificate is not accepted without confirmation ...
     let err = connect(&cfg(s.clone()), &kh)
         .await
         .err()
         .expect("self-signed must fail");
-    assert_eq!(err.code, ErrorCode::Connection, "{err:?}");
-    // ... and accepted when explicitly allowed
-    s.insecure_tls = true;
+    assert_eq!(err.code, ErrorCode::CertUntrusted, "{err:?}");
+    assert_eq!(err.details.as_ref().unwrap()["reason"], "self_signed");
+    // ... only this exact certificate is accepted after the user pinned it
+    pin_cert(&kh, &err);
     let fs = connect(&cfg(s), &kh).await.expect("connect ftps");
     let home = fs.home().await.unwrap();
     exercise(fs, &home).await;
@@ -270,7 +305,7 @@ async fn webdav() {
     if !enabled() {
         return;
     }
-    let kh = KnownHosts::from_entries(vec![]);
+    let kh = temp_trust();
     let mut s = site(Protocol::Webdav, 8080);
     s.remote_path = "/dav".into();
     let fs = connect(&cfg(s.clone()), &kh).await.expect("connect webdav");
@@ -290,7 +325,7 @@ async fn s3() {
     if !enabled() {
         return;
     }
-    let kh = KnownHosts::from_entries(vec![]);
+    let kh = temp_trust();
     let mut s = site(Protocol::S3, 0);
     s.port = None;
     s.host = String::new();
@@ -314,7 +349,7 @@ async fn webdav_https() {
     if !enabled() {
         return;
     }
-    let kh = KnownHosts::from_entries(vec![]);
+    let kh = temp_trust();
     let mut s = site(Protocol::Webdavs, 8443);
     s.host = "localhost".into();
     s.remote_path = "/dav".into();
@@ -322,9 +357,13 @@ async fn webdav_https() {
         .await
         .err()
         .expect("self-signed must fail");
-    assert_eq!(err.code, ErrorCode::Connection, "{err:?}");
-    assert!(err.message.contains("certificate"), "{}", err.message);
-    s.insecure_tls = true;
+    assert_eq!(err.code, ErrorCode::CertUntrusted, "{err:?}");
+    let presented = &err.details.as_ref().unwrap()["presented"];
+    assert!(
+        presented["subject"].as_str().unwrap().contains("localhost"),
+        "{presented}"
+    );
+    pin_cert(&kh, &err);
     let fs = connect(&cfg(s), &kh).await.expect("connect webdavs");
     exercise(fs, "/dav").await;
 }

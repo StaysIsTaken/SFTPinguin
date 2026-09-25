@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, ChevronRight, FolderOpen, Star, Trash2 } from "lucide-react";
-import { api, AuthMethod, defaultPort, emptySite, Protocol, Site } from "../lib/api";
+import { ChevronDown, ChevronRight, FolderOpen, LockOpen, Star, Trash2 } from "lucide-react";
+import { api, AuthMethod, defaultPort, emptySite, isUnencrypted, Protocol, Site } from "../lib/api";
+import { FolderSelect } from "./FolderPicker";
 import { Modal, openDialog } from "../lib/dialogs";
 import { t, useT } from "../lib/i18n";
 import { useStore } from "../lib/store";
@@ -49,7 +50,6 @@ function SiteEditor({
 }) {
   const t = useT();
   const platform = useStore((s) => s.platform);
-  const sites = useStore((s) => s.sites);
   const [site, setSite] = useState<Site>(() => ({ ...(initial ?? emptySite()) }));
   const [password, setPassword] = useState(initialPassword ?? "");
   const [keyData, setKeyData] = useState("");
@@ -60,7 +60,7 @@ function SiteEditor({
 
   const isNew = !initial?.id;
   const family = familyOf(site.protocol);
-  const groups = useMemo(() => [...new Set(sites.map((s) => s.group).filter(Boolean))].sort(), [sites]);
+  const unencrypted = isUnencrypted(site);
   const set = <K extends keyof Site>(key: K, value: Site[K]) => setSite((s) => ({ ...s, [key]: value }));
 
   const authOptions: AuthMethod[] =
@@ -191,10 +191,23 @@ function SiteEditor({
           </div>
         )}
 
-        <label className="field">
-          <span>{t("site.name")}</span>
-          <input className="input" value={site.name} placeholder={t("site.namePlaceholder")} onChange={(e) => set("name", e.target.value)} autoFocus />
-        </label>
+        {unencrypted && (
+          <div className="warn-box">
+            <LockOpen size={16} />
+            <span>{site.protocol === "ftp" ? t("site.unencryptedWarning") : t("site.httpWarning")}</span>
+          </div>
+        )}
+
+        <div className="frow">
+          <label className="field grow">
+            <span>{t("site.name")}</span>
+            <input className="input" value={site.name} placeholder={t("site.namePlaceholder")} onChange={(e) => set("name", e.target.value)} autoFocus />
+          </label>
+          <label className="field" style={{ width: 190 }}>
+            <span>{t("site.group")}</span>
+            <FolderSelect value={site.group} onChange={(v) => set("group", v)} />
+          </label>
+        </div>
 
         {family === "s3" ? (
           <div className="frow">
@@ -369,21 +382,6 @@ function SiteEditor({
               </div>
             </label>
             <div className="frow">
-              <label className="field grow">
-                <span>{t("site.group")}</span>
-                <input
-                  className="input"
-                  list="site-groups"
-                  value={site.group}
-                  placeholder={t("site.groupPlaceholder")}
-                  onChange={(e) => set("group", e.target.value)}
-                />
-                <datalist id="site-groups">
-                  {groups.map((g) => (
-                    <option key={g} value={g} />
-                  ))}
-                </datalist>
-              </label>
               <label className="field" style={{ width: 120 }}>
                 <span>{t("site.timeout")}</span>
                 <input
@@ -421,10 +419,10 @@ function SiteEditor({
                 <span>{t("site.pathStyle")}</span>
               </label>
             )}
-            {(family === "ftps" || site.protocol === "webdavs") && (
+            {unencrypted && (
               <label className="check">
-                <input type="checkbox" checked={site.insecureTls} onChange={(e) => set("insecureTls", e.target.checked)} />
-                <span>{t("site.insecureTls")}</span>
+                <input type="checkbox" checked={site.allowInsecure} onChange={(e) => set("allowInsecure", e.target.checked)} />
+                <span>{t("site.insecureAllowed")}</span>
               </label>
             )}
             <label className="field">

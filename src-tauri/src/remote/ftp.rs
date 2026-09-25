@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use super::{join, Reader, RemoteFs, Writer};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::model::{AuthMethod, Capabilities, ConnectConfig, EntryKind, FileEntry, Protocol};
+use crate::tls::{CertStore, TlsContext};
 
 enum Conn {
     Plain(AsyncFtpStream),
@@ -65,13 +66,14 @@ fn ftp_err(e: FtpError) -> AppError {
 }
 
 impl FtpFs {
-    pub async fn connect(cfg: &ConnectConfig) -> AppResult<Self> {
+    pub async fn connect(cfg: &ConnectConfig, certs: &CertStore) -> AppResult<Self> {
         let site = &cfg.site;
         let host = site.host.trim();
         let addr = (host, site.port());
+        let tls_ctx = TlsContext::new(host, site.port(), certs);
 
         let tls = |tls12_only: bool| -> AppResult<AsyncRustlsConnector> {
-            let config = crate::tls::client_config(site.insecure_tls, tls12_only)?;
+            let config = tls_ctx.client_config(tls12_only)?;
             Ok(AsyncRustlsConnector::from(
                 suppaftp::tokio_rustls::TlsConnector::from(config),
             ))
@@ -83,7 +85,17 @@ impl FtpFs {
                     plain
                         .into_secure(tls(tls12_only)?, host)
                         .await
-                        .map_err(ftp_err)
+                        .map_err(|e| match e {
+                            // AUTH TLS was refused: the server has no encryption at all
+                            FtpError::UnexpectedResponse(resp) => AppError::new(
+                                ErrorCode::TlsNotSupported,
+                                format!(
+                                    "The server does not support encrypted FTP (AUTH TLS): {}",
+                                    resp.as_string().unwrap_or_default().trim()
+                                ),
+                            ),
+                            other => ftp_err(other),
+                        })
                 }
                 _ => AsyncRustlsFtpStream::connect_secure_implicit(addr, tls(tls12_only)?, host)
                     .await
@@ -96,15 +108,20 @@ impl FtpFs {
             Protocol::Ftps | Protocol::FtpsImplicit => {
                 // Prefer TLS 1.2: several popular servers (e.g. vsftpd) break TLS 1.3 data
                 // connections. Fall back to TLS 1.3 for servers that no longer offer 1.2.
-                match open_tls(true).await {
-                    Ok(s) => Conn::Tls(s),
+                let first = open_tls(true).await;
+                let result = match first {
                     Err(e)
                         if e.message.to_lowercase().contains("protocolversion")
                             || e.message.to_lowercase().contains("protocol version") =>
                     {
-                        Conn::Tls(open_tls(false).await?)
+                        open_tls(false).await
                     }
-                    Err(e) => return Err(e),
+                    other => other,
+                };
+                match result {
+                    Ok(s) => Conn::Tls(s),
+                    // untrusted / changed certificate: let the user decide
+                    Err(e) => return Err(tls_ctx.certificate_error().unwrap_or(e)),
                 }
             }
             _ => return Err(AppError::invalid("Not an FTP protocol")),

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { Files, Loader2, Menu, Plus, X } from "lucide-react";
+import { Files, Loader2, LockOpen, Menu, Plus, X } from "lucide-react";
 import { protocolLabel } from "./lib/api";
 import { useT } from "./lib/i18n";
 import { useStore } from "./lib/store";
@@ -115,6 +115,9 @@ function TabBar() {
               title={`${protocolLabel(tab.info.protocol)} · ${tab.info.username ? tab.info.username + "@" : ""}${tab.info.host}`}
             >
               <span className="tab-dot" style={site?.color ? { background: site.color } : undefined} />
+              {!tab.info.encrypted && (
+                <LockOpen size={12} className="text-danger" aria-label={t("security.unencrypted")} />
+              )}
               <span className="tab-title">{tab.info.title}</span>
               <button
                 className="tab-close"

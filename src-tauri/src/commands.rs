@@ -10,9 +10,10 @@ use crate::edit::{EditManager, EditedFile};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::events::{self, LogLevel};
 use crate::known_hosts::HostKey;
-use crate::model::{AuthMethod, ConnectConfig, FileEntry, Site};
+use crate::model::{AuthMethod, ConnectConfig, FileEntry, Protocol, Site};
 use crate::secrets::{key_for, SecretBackend};
 use crate::session::{Session, SessionInfo};
+use crate::tls::CertInfo;
 use crate::transfer::{ConflictPolicy, Direction, TransferInfo, TransferManager, TransferRequest};
 use crate::{local, sites, AppState};
 
@@ -152,6 +153,31 @@ pub async fn save_site(
 }
 
 #[tauri::command]
+pub fn list_folders(state: St<'_>) -> Vec<String> {
+    state.sites.folders()
+}
+
+#[tauri::command]
+pub fn create_folder(state: St<'_>, path: String) -> AppResult<String> {
+    state.sites.create_folder(&path)
+}
+
+#[tauri::command]
+pub fn rename_folder(state: St<'_>, from: String, to: String) -> AppResult<()> {
+    state.sites.rename_folder(&from, &to)
+}
+
+#[tauri::command]
+pub fn delete_folder(state: St<'_>, path: String) -> AppResult<()> {
+    state.sites.delete_folder(&path)
+}
+
+#[tauri::command]
+pub fn move_sites(state: St<'_>, ids: Vec<String>, folder: String) -> AppResult<()> {
+    state.sites.move_sites(&ids, &folder)
+}
+
+#[tauri::command]
 pub async fn delete_site(state: St<'_>, id: String) -> AppResult<()> {
     let state = state.inner().clone();
     state.sites.remove(&id)?;
@@ -212,17 +238,32 @@ pub async fn import_filezilla(state: St<'_>, path: String) -> AppResult<ImportRe
 
 #[tauri::command]
 pub fn trust_host_key(state: St<'_>, key: HostKey) -> AppResult<()> {
-    state.known_hosts.trust(key)
+    state.trust.hosts.trust(key)
+}
+
+#[tauri::command]
+pub fn trust_certificate(state: St<'_>, cert: CertInfo) -> AppResult<()> {
+    state.trust.certs.trust(cert)
+}
+
+#[tauri::command]
+pub fn list_certificates(state: St<'_>) -> Vec<CertInfo> {
+    state.trust.certs.list()
+}
+
+#[tauri::command]
+pub fn remove_certificate(state: St<'_>, host: String, port: u16) -> AppResult<()> {
+    state.trust.certs.remove(&host, port)
 }
 
 #[tauri::command]
 pub fn list_host_keys(state: St<'_>) -> Vec<HostKey> {
-    state.known_hosts.list()
+    state.trust.hosts.list()
 }
 
 #[tauri::command]
 pub fn remove_host_key(state: St<'_>, host: String, port: u16) -> AppResult<()> {
-    state.known_hosts.remove(&host, port)
+    state.trust.hosts.remove(&host, port)
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +282,37 @@ pub struct ConnectRequest {
     /// Remember the entered password for the saved site
     #[serde(default)]
     remember: bool,
+    /// The user confirmed an unencrypted connection (FTP / HTTP) for this attempt
+    #[serde(default)]
+    allow_insecure: bool,
+}
+
+/// Traffic to the own machine never leaves it, so it cannot be sniffed on the network.
+fn is_loopback(site: &Site) -> bool {
+    let raw = if site.protocol == Protocol::S3 && !site.endpoint.trim().is_empty() {
+        site.endpoint.trim()
+    } else {
+        site.host.trim()
+    };
+    let host = raw
+        .split("://")
+        .last()
+        .unwrap_or(raw)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    // bare IPv6 ("::1"), bracketed IPv6 with port ("[::1]:21") or host[:port]
+    let host = if host.parse::<std::net::IpAddr>().is_ok() {
+        host
+    } else if let Some(inner) = host.strip_prefix('[') {
+        inner.split(']').next().unwrap_or("")
+    } else {
+        host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 #[tauri::command]
@@ -254,6 +326,17 @@ pub async fn connect(state: St<'_>, req: ConnectRequest) -> AppResult<SessionInf
         (None, Some(site)) => site,
         (None, None) => return Err(AppError::invalid("No site given")),
     };
+
+    // Never send credentials in clear text without the user's explicit consent.
+    if let Some(reason) = site.insecure_reason() {
+        if !req.allow_insecure && !site.allow_insecure && !is_loopback(&site) {
+            return Err(AppError::new(
+                ErrorCode::InsecureConnection,
+                "This connection is not encrypted",
+            )
+            .with_details(serde_json::json!({ "reason": reason })));
+        }
+    }
 
     // Resolve secrets
     let (stored_password, key_data) = if req.site_id.is_some() {
@@ -306,7 +389,7 @@ pub async fn connect(state: St<'_>, req: ConnectRequest) -> AppResult<SessionInf
             site.port()
         ),
     );
-    let session = match Session::open(config, req.site_id.clone(), &state.known_hosts).await {
+    let session = match Session::open(config, req.site_id.clone(), &state.trust).await {
         Ok(s) => s,
         Err(e) => {
             match e.code {
@@ -371,7 +454,7 @@ pub async fn list_remote(
 ) -> AppResult<Vec<FileEntry>> {
     let session = state.sessions.get(&session_id)?;
     session
-        .run(&state.known_hosts, |c| {
+        .run(&state.trust, |c| {
             let path = path.clone();
             async move { c.list(&path).await }
         })
@@ -386,7 +469,7 @@ pub async fn remote_stat(
 ) -> AppResult<Option<FileEntry>> {
     let session = state.sessions.get(&session_id)?;
     session
-        .run(&state.known_hosts, |c| {
+        .run(&state.trust, |c| {
             let path = path.clone();
             async move { c.stat(&path).await }
         })
@@ -397,7 +480,7 @@ pub async fn remote_stat(
 pub async fn remote_mkdir(state: St<'_>, session_id: String, path: String) -> AppResult<()> {
     let session = state.sessions.get(&session_id)?;
     session
-        .run(&state.known_hosts, |c| {
+        .run(&state.trust, |c| {
             let path = path.clone();
             async move { c.mkdir(&path).await }
         })
@@ -415,7 +498,7 @@ pub async fn remote_mkdir(state: St<'_>, session_id: String, path: String) -> Ap
 pub async fn remote_create_file(state: St<'_>, session_id: String, path: String) -> AppResult<()> {
     let session = state.sessions.get(&session_id)?;
     session
-        .run(&state.known_hosts, |c| {
+        .run(&state.trust, |c| {
             let path = path.clone();
             async move {
                 if c.stat(&path).await?.is_some() {
@@ -440,7 +523,7 @@ pub async fn remote_rename(
 ) -> AppResult<()> {
     let session = state.sessions.get(&session_id)?;
     session
-        .run(&state.known_hosts, |c| {
+        .run(&state.trust, |c| {
             let (from, to) = (from.clone(), to.clone());
             async move { c.rename(&from, &to).await }
         })
@@ -468,7 +551,7 @@ pub async fn remote_delete(
     items: Vec<PathItem>,
 ) -> AppResult<()> {
     let session = state.sessions.get(&session_id)?;
-    let kh = &state.known_hosts;
+    let kh = &state.trust;
     for item in items {
         if item.is_dir {
             let (dirs, files) = session.walk(kh, &item.path).await?;
@@ -520,7 +603,7 @@ pub async fn remote_chmod(
     recursive: bool,
 ) -> AppResult<()> {
     let session = state.sessions.get(&session_id)?;
-    let kh = &state.known_hosts;
+    let kh = &state.trust;
     for item in items {
         let mut targets = vec![item.path.clone()];
         if recursive && item.is_dir {
@@ -714,4 +797,64 @@ pub fn open_local_path(app: tauri::AppHandle, path: String) -> AppResult<()> {
     app.opener()
         .open_path(&path, None::<&str>)
         .map_err(|e| AppError::new(ErrorCode::Io, e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site(protocol: Protocol, host: &str, endpoint: &str) -> Site {
+        Site {
+            protocol,
+            host: host.into(),
+            endpoint: endpoint.into(),
+            ..Site::default()
+        }
+    }
+
+    #[test]
+    fn insecure_detection() {
+        assert_eq!(
+            site(Protocol::Ftp, "nas", "").insecure_reason(),
+            Some("ftp")
+        );
+        assert_eq!(
+            site(Protocol::Webdav, "nas", "").insecure_reason(),
+            Some("http")
+        );
+        assert_eq!(site(Protocol::Ftps, "nas", "").insecure_reason(), None);
+        assert_eq!(site(Protocol::Sftp, "nas", "").insecure_reason(), None);
+        assert_eq!(
+            site(Protocol::S3, "", "http://minio:9000").insecure_reason(),
+            Some("http")
+        );
+        assert_eq!(
+            site(Protocol::S3, "", "https://minio:9000").insecure_reason(),
+            None
+        );
+        assert_eq!(
+            site(Protocol::S3, "", "s3.example.com").insecure_reason(),
+            None
+        );
+    }
+
+    #[test]
+    fn loopback() {
+        assert!(is_loopback(&site(Protocol::Ftp, "127.0.0.1", "")));
+        assert!(is_loopback(&site(Protocol::Ftp, "localhost", "")));
+        assert!(is_loopback(&site(
+            Protocol::Webdav,
+            "http://127.0.0.1:8080/dav",
+            ""
+        )));
+        assert!(is_loopback(&site(Protocol::Ftp, "::1", "")));
+        assert!(is_loopback(&site(Protocol::S3, "", "http://[::1]:9000")));
+        assert!(!is_loopback(&site(Protocol::Ftp, "192.168.1.10", "")));
+        assert!(!is_loopback(&site(Protocol::Ftp, "localhost.evil.com", "")));
+        assert!(!is_loopback(&site(
+            Protocol::S3,
+            "",
+            "http://10.0.0.5:9000"
+        )));
+    }
 }

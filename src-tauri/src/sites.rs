@@ -13,15 +13,193 @@ use crate::storage;
 pub struct SiteStore {
     path: PathBuf,
     sites: RwLock<Vec<Site>>,
+    folders_path: PathBuf,
+    /// Folder paths like `Kunden/Müller` (also empty folders)
+    folders: RwLock<Vec<String>>,
+}
+
+/// Normalizes a folder path: `" Kunden / Müller/"` → `"Kunden/Müller"`.
+pub fn normalize_folder(path: &str) -> String {
+    path.split('/')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn folder_parent(path: &str) -> String {
+    path.rsplit_once('/')
+        .map(|(p, _)| p.to_string())
+        .unwrap_or_default()
+}
+
+/// `prefix` itself or anything inside it.
+fn is_within(path: &str, prefix: &str) -> bool {
+    path == prefix || path.starts_with(&format!("{prefix}/"))
 }
 
 impl SiteStore {
     pub fn load(path: PathBuf) -> Self {
-        let sites = storage::read_json(&path).unwrap_or_default();
-        Self {
+        let mut sites: Vec<Site> = storage::read_json(&path).unwrap_or_default();
+        for s in &mut sites {
+            s.group = normalize_folder(&s.group);
+        }
+        let folders_path = path.with_file_name("folders.json");
+        let folders = storage::read_json(&folders_path).unwrap_or_default();
+        let store = Self {
             path,
             sites: RwLock::new(sites),
+            folders_path,
+            folders: RwLock::new(folders),
+        };
+        store.register_site_folders();
+        store
+    }
+
+    /// Makes sure every folder used by a site (and all its parents) is known.
+    fn register_site_folders(&self) {
+        let groups: Vec<String> = self
+            .sites
+            .read()
+            .unwrap()
+            .iter()
+            .map(|s| s.group.clone())
+            .filter(|g| !g.is_empty())
+            .collect();
+        let mut folders = self.folders.write().unwrap();
+        let before = folders.len();
+        for g in groups {
+            let mut acc = String::new();
+            for seg in g.split('/') {
+                acc = if acc.is_empty() {
+                    seg.to_string()
+                } else {
+                    format!("{acc}/{seg}")
+                };
+                if !folders.contains(&acc) {
+                    folders.push(acc.clone());
+                }
+            }
         }
+        if folders.len() != before {
+            folders.sort();
+            let _ = storage::write_json(&self.folders_path, &*folders);
+        }
+    }
+
+    pub fn folders(&self) -> Vec<String> {
+        self.folders.read().unwrap().clone()
+    }
+
+    pub fn create_folder(&self, path: &str) -> AppResult<String> {
+        let path = normalize_folder(path);
+        if path.is_empty() {
+            return Err(AppError::invalid("Folder name is empty"));
+        }
+        {
+            let mut folders = self.folders.write().unwrap();
+            let mut acc = String::new();
+            for seg in path.split('/') {
+                acc = if acc.is_empty() {
+                    seg.to_string()
+                } else {
+                    format!("{acc}/{seg}")
+                };
+                if !folders.contains(&acc) {
+                    folders.push(acc.clone());
+                }
+            }
+            folders.sort();
+            storage::write_json(&self.folders_path, &*folders)?;
+        }
+        Ok(path)
+    }
+
+    /// Renames / moves a folder incl. its sub folders and servers.
+    pub fn rename_folder(&self, from: &str, to: &str) -> AppResult<()> {
+        let from = normalize_folder(from);
+        let to = normalize_folder(to);
+        if from.is_empty() || to.is_empty() {
+            return Err(AppError::invalid("Folder name is empty"));
+        }
+        if is_within(&to, &from) && to != from {
+            return Err(AppError::invalid("A folder cannot be moved into itself"));
+        }
+        let remap = |p: &str| -> String {
+            if is_within(p, &from) {
+                format!("{to}{}", &p[from.len()..])
+            } else {
+                p.to_string()
+            }
+        };
+        {
+            let mut folders = self.folders.write().unwrap();
+            let mut next: Vec<String> = folders.iter().map(|f| remap(f)).collect();
+            next.sort();
+            next.dedup();
+            *folders = next;
+            storage::write_json(&self.folders_path, &*folders)?;
+        }
+        {
+            let mut sites = self.sites.write().unwrap();
+            for s in sites.iter_mut() {
+                s.group = remap(&s.group);
+            }
+            self.persist(&sites)?;
+        }
+        self.register_site_folders();
+        Ok(())
+    }
+
+    /// Deletes a folder. Its servers and sub folders move to the parent folder.
+    pub fn delete_folder(&self, path: &str) -> AppResult<()> {
+        let path = normalize_folder(path);
+        let parent = folder_parent(&path);
+        let lift = |p: &str| -> String {
+            if p == path {
+                parent.clone()
+            } else if is_within(p, &path) {
+                let rest = &p[path.len() + 1..];
+                if parent.is_empty() {
+                    rest.to_string()
+                } else {
+                    format!("{parent}/{rest}")
+                }
+            } else {
+                p.to_string()
+            }
+        };
+        {
+            let mut folders = self.folders.write().unwrap();
+            let mut next: Vec<String> = folders
+                .iter()
+                .filter(|f| **f != path)
+                .map(|f| lift(f))
+                .filter(|f| !f.is_empty())
+                .collect();
+            next.sort();
+            next.dedup();
+            *folders = next;
+            storage::write_json(&self.folders_path, &*folders)?;
+        }
+        let mut sites = self.sites.write().unwrap();
+        for s in sites.iter_mut() {
+            s.group = lift(&s.group);
+        }
+        self.persist(&sites)
+    }
+
+    pub fn move_sites(&self, ids: &[String], folder: &str) -> AppResult<()> {
+        let folder = normalize_folder(folder);
+        {
+            let mut sites = self.sites.write().unwrap();
+            for s in sites.iter_mut().filter(|s| ids.contains(&s.id)) {
+                s.group = folder.clone();
+            }
+            self.persist(&sites)?;
+        }
+        self.register_site_folders();
+        Ok(())
     }
 
     fn persist(&self, sites: &[Site]) -> AppResult<()> {
@@ -43,6 +221,13 @@ impl SiteStore {
 
     /// Inserts or replaces a site. Assigns an id for new sites.
     pub fn upsert(&self, mut site: Site) -> AppResult<Site> {
+        site.group = normalize_folder(&site.group);
+        let result = self.upsert_inner(site);
+        self.register_site_folders();
+        result
+    }
+
+    fn upsert_inner(&self, mut site: Site) -> AppResult<Site> {
         let mut sites = self.sites.write().unwrap();
         if site.id.is_empty() {
             site.id = uuid::Uuid::new_v4().to_string();
@@ -159,9 +344,9 @@ fn parse_filezilla_str(xml: &str) -> AppResult<Vec<ImportedSite>> {
                             let group = folders
                                 .iter()
                                 .filter(|f| !f.is_empty())
-                                .cloned()
+                                .map(|f| f.replace('/', "-"))
                                 .collect::<Vec<_>>()
-                                .join(" / ");
+                                .join("/");
                             if let Some(s) = filezilla_site(&f, group, pass_base64) {
                                 out.push(s);
                             }
@@ -303,6 +488,56 @@ fn parse_filezilla_remote_dir(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_store() -> SiteStore {
+        let dir = std::env::temp_dir().join(format!("sftpinguin-sites-{}", uuid::Uuid::new_v4()));
+        SiteStore::load(dir.join("sites.json"))
+    }
+
+    fn add(store: &SiteStore, name: &str, group: &str) -> String {
+        store
+            .upsert(Site {
+                name: name.into(),
+                group: group.into(),
+                ..Site::default()
+            })
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn folders() {
+        assert_eq!(normalize_folder(" Kunden / Müller/"), "Kunden/Müller");
+        let store = temp_store();
+        let a = add(&store, "a", "Kunden/Müller");
+        let b = add(&store, "b", "Kunden");
+        add(&store, "c", "");
+        assert_eq!(store.folders(), vec!["Kunden", "Kunden/Müller"]);
+
+        store.create_folder("Privat/NAS").unwrap();
+        assert!(store.folders().contains(&"Privat".to_string()));
+
+        store.rename_folder("Kunden", "Firma").unwrap();
+        assert_eq!(store.get(&a).unwrap().group, "Firma/Müller");
+        assert_eq!(store.get(&b).unwrap().group, "Firma");
+        assert!(!store.folders().iter().any(|f| f.starts_with("Kunden")));
+        assert!(store.rename_folder("Firma", "Firma/Sub").is_err());
+
+        store
+            .move_sites(std::slice::from_ref(&b), "Privat/NAS")
+            .unwrap();
+        assert_eq!(store.get(&b).unwrap().group, "Privat/NAS");
+
+        store.delete_folder("Firma").unwrap();
+        assert_eq!(store.get(&a).unwrap().group, "Müller");
+        assert!(store.folders().contains(&"Müller".to_string()));
+        assert!(!store.folders().contains(&"Firma".to_string()));
+
+        // persisted
+        let reloaded = SiteStore::load(store.path.clone());
+        assert_eq!(reloaded.get(&b).unwrap().group, "Privat/NAS");
+        assert!(reloaded.folders().contains(&"Privat/NAS".to_string()));
+    }
 
     #[test]
     fn remote_dir() {

@@ -411,7 +411,7 @@ impl TransferManager {
         policy: ConflictPolicy,
     ) -> AppResult<()> {
         let session = state.sessions.get(session_id)?;
-        let kh = &state.known_hosts;
+        let kh = &state.trust;
         let mut new_jobs = Vec::new();
         match direction {
             Direction::Upload => {
@@ -551,7 +551,7 @@ impl TransferManager {
     async fn run_job(state: &Arc<AppState>, job: &Arc<Job>) -> AppResult<bool> {
         let info = job.snapshot();
         let session = state.sessions.get(&info.session_id)?;
-        let conn = session.acquire(&state.known_hosts).await?;
+        let conn = session.acquire(&state.trust).await?;
         let result = match info.direction {
             Direction::Upload => Self::upload(state, job, &conn, &info).await,
             Direction::Download => Self::download(state, job, &conn, &info).await,

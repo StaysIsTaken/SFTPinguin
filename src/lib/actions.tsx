@@ -1,9 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
-import { CalendarClock, CopyPlus, Replace, ShieldAlert, ShieldQuestion, SkipForward } from "lucide-react";
+import { CalendarClock, CopyPlus, Replace, SkipForward } from "lucide-react";
 import {
   api,
   asAppError,
   AppError,
+  CertInfo,
   ConflictPolicy,
   EditedFile,
   FileEntry,
@@ -15,7 +16,8 @@ import {
   TransferProgress,
   TransferRequest,
 } from "./api";
-import { choiceDialog, Modal, openDialog, passwordDialog } from "./dialogs";
+import { choiceDialog, passwordDialog } from "./dialogs";
+import { certDialog, hostKeyDialog, insecureDialog } from "../components/SecurityDialogs";
 import { t, TKey } from "./i18n";
 import { useStore } from "./store";
 import { lname, ljoin, rjoin } from "./format";
@@ -37,8 +39,9 @@ export function showError(e: unknown) {
 }
 
 export async function reloadSites() {
-  const sites = await api.listSites();
+  const [sites, folders] = await Promise.all([api.listSites(), api.listFolders()]);
   useStore.getState().setSites(sites);
+  useStore.getState().setFolders(folders ?? []);
 }
 
 export function syncTransferOptions() {
@@ -50,58 +53,10 @@ export function syncTransferOptions() {
 // Connecting
 // ---------------------------------------------------------------------------
 
-function hostKeyDialog(kind: "unknown" | "changed", presented: HostKey, previous?: HostKey): Promise<boolean> {
-  const hostLabel = presented.port === 22 ? presented.host : `${presented.host}:${presented.port}`;
-  return openDialog<boolean>((done) => (
-    <Modal
-      title={kind === "unknown" ? t("hostkey.unknownTitle") : t("hostkey.changedTitle")}
-      onClose={() => done(false)}
-      danger={kind === "changed"}
-      width={520}
-      icon={
-        kind === "unknown" ? (
-          <ShieldQuestion size={20} className="text-accent" />
-        ) : (
-          <ShieldAlert size={20} className="text-danger" />
-        )
-      }
-      footer={
-        <>
-          <button className="btn" onClick={() => done(false)} autoFocus={kind === "changed"}>
-            {t("common.cancel")}
-          </button>
-          <button
-            className={`btn ${kind === "changed" ? "btn-danger" : "btn-primary"}`}
-            onClick={() => done(true)}
-            autoFocus={kind === "unknown"}
-          >
-            {kind === "unknown" ? t("hostkey.trust") : t("hostkey.replace")}
-          </button>
-        </>
-      }
-    >
-      <p className="dialog-message">
-        {t(kind === "unknown" ? "hostkey.unknownText" : "hostkey.changedText", { host: hostLabel })}
-      </p>
-      <dl className="kv">
-        <dt>{t("hostkey.type")}</dt>
-        <dd>{presented.keyType}</dd>
-        <dt>{t("hostkey.fingerprint")}</dt>
-        <dd className="mono selectable">{presented.fingerprint}</dd>
-        {previous && (
-          <>
-            <dt>{t("hostkey.previous")}</dt>
-            <dd className="mono selectable muted">{previous.fingerprint}</dd>
-          </>
-        )}
-      </dl>
-    </Modal>
-  ));
-}
-
 /**
- * Connects to a saved site (siteId) or an ad-hoc site. Handles host key
- * confirmation and password prompts. Returns null if the user aborted.
+ * Connects to a saved site (siteId) or an ad-hoc site. Handles host key and certificate
+ * confirmation, unencrypted-connection warnings and password prompts.
+ * Returns null if the user aborted.
  */
 export async function connectTo(target: {
   siteId?: string;
@@ -109,40 +64,89 @@ export async function connectTo(target: {
   password?: string;
 }): Promise<SessionInfo | null> {
   const store = useStore.getState();
-  const site = target.siteId ? store.sites.find((s) => s.id === target.siteId) : target.site;
-  if (!site) return null;
+  const saved = target.siteId ? store.sites.find((s) => s.id === target.siteId) : undefined;
+  const original = saved ?? target.site;
+  if (!original) return null;
   const key = target.siteId ?? "quick";
-  const name = site.name || site.host;
+  const name = original.name || original.host;
   if (store.connecting[key]) return null;
   store.setConnecting(key, name);
 
+  // Quick connect with FTP: try encrypted FTPS first, only fall back after asking.
+  let site: Site = { ...original };
+  if (!target.siteId && site.protocol === "ftp") site.protocol = "ftps";
+
   let password: string | null = target.password || null;
   let remember = site.savePassword;
+  let allowInsecure = false;
   let lastError: AppError | null = null;
+
+  const askInsecure = async (kind: "ftp" | "http" | "no_tls") => {
+    if (useStore.getState().settings.insecurePolicy === "block") {
+      throw { code: "insecure_connection", message: t("insecure.blocked") } as AppError;
+    }
+    const res = await insecureDialog(kind, !!target.siteId);
+    if (!res) return false;
+    allowInsecure = true;
+    if (res.remember && saved) {
+      const updated = await api.saveSite({ ...saved, allowInsecure: true }, {}).catch(() => null);
+      if (updated) useStore.getState().upsertSite(updated.site);
+    }
+    return true;
+  };
+
   try {
-    for (let attempt = 0; attempt < 6; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       try {
         const info = await api.connect({
           siteId: target.siteId ?? null,
           site: target.siteId ? null : site,
           password,
           remember: remember && !!target.siteId,
+          allowInsecure,
         });
         if (target.siteId) reloadSites().catch(() => {});
         return info;
       } catch (e) {
         const err = asAppError(e);
         lastError = err;
-        if (err.code === "host_key_unknown" || err.code === "host_key_changed") {
-          const presented = err.details?.presented as HostKey;
-          const ok = await hostKeyDialog(
-            err.code === "host_key_unknown" ? "unknown" : "changed",
-            presented,
-            err.details?.previous,
-          );
-          if (!ok) return null;
-          await api.trustHostKey(presented);
-          continue;
+        switch (err.code) {
+          case "host_key_unknown":
+          case "host_key_changed": {
+            const presented = err.details?.presented as HostKey;
+            const ok = await hostKeyDialog(
+              err.code === "host_key_unknown" ? "unknown" : "changed",
+              presented,
+              err.details?.previous,
+            );
+            if (!ok) return null;
+            await api.trustHostKey(presented);
+            continue;
+          }
+          case "cert_untrusted":
+          case "cert_changed": {
+            const presented = err.details?.presented as CertInfo;
+            const ok = await certDialog(
+              err.code === "cert_untrusted" ? "untrusted" : "changed",
+              presented,
+              err.details?.reason ?? "other",
+              err.details?.previous,
+            );
+            if (!ok) return null;
+            await api.trustCertificate(presented);
+            continue;
+          }
+          case "insecure_connection": {
+            if (!(await askInsecure(err.details?.reason === "ftp" ? "ftp" : "http"))) return null;
+            continue;
+          }
+          case "tls_not_supported": {
+            // only reached by the automatic FTPS upgrade of a quick connect
+            if (target.siteId || original.protocol !== "ftp") throw err;
+            if (!(await askInsecure("no_tls"))) return null;
+            site = { ...site, protocol: "ftp" };
+            continue;
+          }
         }
         const needsSecret =
           err.code === "password_required" ||
@@ -162,7 +166,7 @@ export async function connectTo(target: {
             label,
             hint:
               err.code === "auth_failed" || (attempt > 0 && err.code === "passphrase_required") ? (
-                <span className="text-danger">{attempt > 0 || err.code === "auth_failed" ? t("connect.authFailed") : ""}</span>
+                <span className="text-danger">{t("connect.authFailed")}</span>
               ) : undefined,
             remember: target.siteId && site.savePassword ? remember : undefined,
           });

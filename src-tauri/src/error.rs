@@ -11,6 +11,14 @@ pub enum ErrorCode {
     PassphraseRequired,
     HostKeyUnknown,
     HostKeyChanged,
+    /// TLS certificate not publicly trusted (self-signed, expired, wrong name, …)
+    CertUntrusted,
+    /// A pinned TLS certificate was replaced by a different untrusted one
+    CertChanged,
+    /// The FTP server does not support encryption (AUTH TLS)
+    TlsNotSupported,
+    /// Unencrypted connection that the user has not allowed
+    InsecureConnection,
     NotFound,
     PermissionDenied,
     AlreadyExists,

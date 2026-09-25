@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::error::{AppError, AppResult};
-use crate::known_hosts::KnownHosts;
 use crate::model::{Capabilities, ConnectConfig, FileEntry, Protocol};
+use crate::trust::Trust;
 
 pub type Reader<'a> = &'a mut (dyn AsyncRead + Send + Unpin);
 pub type Writer<'a> = &'a mut (dyn AsyncWrite + Send + Unpin);
@@ -68,18 +68,20 @@ pub trait RemoteFs: Send + Sync {
 pub type RemoteHandle = Arc<dyn RemoteFs>;
 
 /// Opens a new connection for the given configuration.
-pub async fn connect(cfg: &ConnectConfig, known_hosts: &KnownHosts) -> AppResult<RemoteHandle> {
+pub async fn connect(cfg: &ConnectConfig, trust: &Trust) -> AppResult<RemoteHandle> {
     if cfg.site.host.trim().is_empty() && cfg.site.protocol != Protocol::S3 {
         return Err(AppError::invalid("No host given"));
     }
     let timeout = std::time::Duration::from_secs(cfg.site.timeout.clamp(3, 300));
     let fut = async {
         let handle: RemoteHandle = match cfg.site.protocol {
-            Protocol::Sftp => Arc::new(sftp::SftpFs::connect(cfg, known_hosts).await?),
+            Protocol::Sftp => Arc::new(sftp::SftpFs::connect(cfg, &trust.hosts).await?),
             Protocol::Ftp | Protocol::Ftps | Protocol::FtpsImplicit => {
-                Arc::new(ftp::FtpFs::connect(cfg).await?)
+                Arc::new(ftp::FtpFs::connect(cfg, &trust.certs).await?)
             }
-            Protocol::Webdav | Protocol::Webdavs => Arc::new(webdav::WebDavFs::connect(cfg).await?),
+            Protocol::Webdav | Protocol::Webdavs => {
+                Arc::new(webdav::WebDavFs::connect(cfg, &trust.certs).await?)
+            }
             Protocol::S3 => Arc::new(s3::S3Fs::connect(cfg).await?),
         };
         Ok::<_, AppError>(handle)

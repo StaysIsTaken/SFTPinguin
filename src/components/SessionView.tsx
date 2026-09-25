@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, HardDrive, Server } from "lucide-react";
+import { ArrowLeft, ArrowRight, HardDrive, Lock, LockOpen, Server } from "lucide-react";
 import { api, FileEntry, Place } from "../lib/api";
 import { useT } from "../lib/i18n";
 import { DragState, Tab, useStore } from "../lib/store";
@@ -148,7 +148,17 @@ export function SessionView({ tab, visible }: { tab: Tab; visible: boolean }) {
       onOsDrop={(paths, dir) => uploadPaths(sessionId, paths, dir, dir === remotePath ? remoteEntries.current : null)}
       onEntries={(e) => (remoteEntries.current = e)}
       title={tab.info.title}
-      titleIcon={<Server size={15} />}
+      titleIcon={
+        tab.info.encrypted ? (
+          <span className="sec-badge ok" title={t("security.encryptedHint")}>
+            <Lock size={13} />
+          </span>
+        ) : (
+          <span className="sec-badge bad" title={t("security.unencryptedHint")}>
+            <LockOpen size={13} /> {t("security.unencrypted")}
+          </span>
+        )
+      }
       transferLabel={t("pane.download")}
       transferIcon={<ArrowLeft size={14} />}
       className={single && mobilePane !== "remote" ? "hidden" : ""}

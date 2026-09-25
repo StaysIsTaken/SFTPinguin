@@ -182,7 +182,7 @@ export function Welcome() {
         )}
 
         <div className="welcome-actions">
-          <button className="btn" onClick={newSite}>
+          <button className="btn" onClick={() => newSite()}>
             <Plus size={15} /> {t("welcome.addSite")}
           </button>
           <button className="btn" onClick={() => importFromFilezilla()}>

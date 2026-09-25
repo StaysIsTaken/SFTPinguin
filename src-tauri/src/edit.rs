@@ -49,9 +49,17 @@ impl EditManager {
         let id = uuid::Uuid::new_v4().to_string();
         let dir: PathBuf = std::env::temp_dir().join("sftpinguin").join(&id[..8]);
         tokio::fs::create_dir_all(&dir).await?;
+        // Other users of this computer must not read the downloaded copies.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o700);
+            let _ = tokio::fs::set_permissions(dir.parent().unwrap_or(&dir), perms.clone()).await;
+            let _ = tokio::fs::set_permissions(&dir, perms).await;
+        }
         let local = dir.join(&name);
 
-        let conn = session.acquire(&state.known_hosts).await?;
+        let conn = session.acquire(&state.trust).await?;
         let result = async {
             let mut file = tokio::fs::File::create(&local).await?;
             conn.download(remote_path, &mut file).await?;

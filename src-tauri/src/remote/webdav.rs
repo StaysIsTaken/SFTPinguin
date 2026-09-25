@@ -11,6 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use super::{join, Reader, RemoteFs, Writer};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::model::{AuthMethod, Capabilities, ConnectConfig, EntryKind, FileEntry, Protocol};
+use crate::tls::{CertStore, TlsContext};
 
 /// Characters that must be escaped inside a URL path segment.
 const SEGMENT: &AsciiSet = &CONTROLS
@@ -91,7 +92,7 @@ fn encode_path(path: &str) -> String {
 }
 
 impl WebDavFs {
-    pub async fn connect(cfg: &ConnectConfig) -> AppResult<Self> {
+    pub async fn connect(cfg: &ConnectConfig, certs: &CertStore) -> AppResult<Self> {
         let site = &cfg.site;
         let scheme = if site.protocol == Protocol::Webdavs {
             "https"
@@ -116,15 +117,27 @@ impl WebDavFs {
             format!("{scheme}://{host}")
         };
 
+        let tls_ctx = TlsContext::new(&host, site.port(), certs);
+        let origin_url = reqwest::Url::parse(&origin)
+            .map_err(|e| AppError::invalid(format!("Invalid address: {e}")))?;
         let client = Client::builder()
             .user_agent(concat!("SFTPinguin/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(site.timeout.clamp(3, 300)))
-            // webpki roots + ring: works identically on desktop and mobile
-            .tls_backend_preconfigured(
-                crate::tls::client_config(site.insecure_tls, false)?
-                    .as_ref()
-                    .clone(),
-            )
+            // webpki roots + certificate pinning, identical on desktop and mobile
+            .tls_backend_preconfigured(tls_ctx.client_config(false)?.as_ref().clone())
+            // Never follow redirects to another host or from HTTPS to HTTP: the
+            // credentials must only ever reach the server the user connected to.
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                let url = attempt.url();
+                let same_origin = url.scheme() == origin_url.scheme()
+                    && url.host_str() == origin_url.host_str()
+                    && url.port_or_known_default() == origin_url.port_or_known_default();
+                if attempt.previous().len() >= 5 || !same_origin {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
             .build()
             .map_err(http_err)?;
 
@@ -159,7 +172,7 @@ impl WebDavFs {
             password,
             home,
         };
-        // Verify credentials and the base path.
+        // Verify certificate, credentials and the base path.
         let resp = fs
             .request(Method::from_bytes(b"PROPFIND").unwrap(), &fs.home)
             .header("Depth", "0")
@@ -167,7 +180,16 @@ impl WebDavFs {
             .body(PROPFIND_BODY)
             .send()
             .await
-            .map_err(http_err)?;
+            .map_err(|e| tls_ctx.certificate_error().unwrap_or_else(|| http_err(e)))?;
+        if resp.status().is_redirection() {
+            return Err(AppError::protocol(format!(
+                "The server redirects to another address ({}). Please enter that address directly.",
+                resp.headers()
+                    .get(header::LOCATION)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("?")
+            )));
+        }
         let status = resp.status();
         if status == StatusCode::UNAUTHORIZED {
             return Err(AppError::new(ErrorCode::AuthFailed, "Login incorrect"));

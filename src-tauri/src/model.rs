@@ -75,8 +75,8 @@ pub struct Site {
     pub favorite: bool,
     /// FTP: passive mode (recommended)
     pub passive: bool,
-    /// TLS: accept invalid / self-signed certificates
-    pub insecure_tls: bool,
+    /// The user explicitly allowed an unencrypted connection (FTP / HTTP) for this site
+    pub allow_insecure: bool,
     /// S3: region (e.g. eu-central-1)
     pub region: String,
     /// S3: custom endpoint (MinIO, Wasabi, R2, Hetzner, ...). Empty = AWS
@@ -112,7 +112,7 @@ impl Default for Site {
             notes: String::new(),
             favorite: false,
             passive: true,
-            insecure_tls: false,
+            allow_insecure: false,
             region: String::new(),
             endpoint: String::new(),
             path_style: false,
@@ -130,6 +130,26 @@ impl Site {
         self.port
             .filter(|p| *p != 0)
             .unwrap_or(self.protocol.default_port())
+    }
+
+    /// Returns why a connection to this site would be unencrypted (`None` = encrypted).
+    pub fn insecure_reason(&self) -> Option<&'static str> {
+        match self.protocol {
+            Protocol::Ftp => Some("ftp"),
+            Protocol::Webdav => Some("http"),
+            Protocol::S3 => {
+                let endpoint = if self.endpoint.trim().is_empty() {
+                    self.host.trim()
+                } else {
+                    self.endpoint.trim()
+                };
+                endpoint
+                    .to_ascii_lowercase()
+                    .starts_with("http://")
+                    .then_some("http")
+            }
+            _ => None,
+        }
     }
 
     pub fn display_name(&self) -> String {

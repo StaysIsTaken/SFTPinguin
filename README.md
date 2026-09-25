@@ -18,13 +18,14 @@
 | Protokoll | Details |
 |---|---|
 | **SFTP** (SSH) | Passwort, Keyboard-Interactive, SSH-Schlüssel (Datei oder eingefügt, auch mit Passphrase), SSH-Agent (ssh-agent / Pageant). Host-Key-Prüfung mit Fingerabdruck und Warnung bei geändertem Schlüssel. |
-| **FTP** | Passiver/aktiver Modus, MLSD und klassisches `LIST` (Unix/DOS), anonymer Login, UTF-8 |
-| **FTPS** | Explizit (AUTH TLS) und implizit (Port 990), TLS-Session-Reuse (z. B. vsftpd), optional selbstsignierte Zertifikate |
+| **FTP** | Passiver/aktiver Modus, MLSD und klassisches `LIST` (Unix/DOS), anonymer Login, UTF-8 – unverschlüsselt, daher nur nach Warnung |
+| **FTPS** | Explizit (AUTH TLS) und implizit (Port 990), TLS-Session-Reuse (z. B. vsftpd), selbstsignierte Zertifikate per Zertifikat-Pinning |
 | **WebDAV** | HTTP und HTTPS – z. B. Nextcloud, ownCloud, Synology, Apache, nginx |
 | **S3** | Amazon S3 und kompatible Dienste (MinIO, Cloudflare R2, Wasabi, Backblaze B2, Hetzner …), Bucket-Übersicht, Path-Style |
 
 **Server-Manager**
-- Server speichern mit Name, Gruppe/Ordner, Farbe, Favoriten, Notizen, Startverzeichnissen
+- Server speichern mit Name, Farbe, Favoriten, Notizen, Startverzeichnissen
+- **Ordner** (beliebig verschachtelt): anlegen, umbenennen, löschen, Server per Drag & Drop oder „In Ordner verschieben“ einsortieren
 - Passwörter sicher im Schlüsselbund des Betriebssystems (Windows Credential Manager, macOS Keychain, Secret Service/GNOME Keyring/KWallet); auf Handys im geschützten App-Speicher
 - Schnellverbindung – auch mit URLs wie `sftp://user@host:2222/pfad`
 - **Import aus FileZilla** (`sitemanager.xml` inkl. Ordnern und Passwörtern)
@@ -49,6 +50,34 @@
 | Dunkel | Handy |
 |---|---|
 | ![Dunkles Design](docs/screenshot-dark.png) | ![Handy](docs/screenshot-mobile.png) |
+
+## Sicherheit
+
+SFTPinguin ist so gebaut, dass im lokalen Netzwerk (WLAN, Firmen- oder Hotelnetz) niemand
+Zugangsdaten oder Dateien mitlesen oder sich unbemerkt dazwischenschalten kann (Man-in-the-Middle):
+
+- **Serveridentität wird vor der Anmeldung geprüft.** Passwörter und Schlüssel werden erst gesendet,
+  wenn der SSH-Host-Key bzw. das TLS-Zertifikat verifiziert ist.
+- **SSH:** Unbekannte Server werden mit SHA-256-Fingerabdruck angezeigt (Einträge aus `~/.ssh/known_hosts`
+  werden automatisch erkannt). Ändert sich ein Schlüssel, bricht die Verbindung mit einer deutlichen
+  Warnung ab; übernehmen lässt er sich nur nach ausdrücklicher Bestätigung. Nur moderne Verfahren:
+  Curve25519/ML-KEM-Schlüsseltausch, AES-GCM/ChaCha20, SHA-2-MACs, „Strict KEX“ gegen die
+  Terrapin-Attacke; `ssh-rsa`-Signaturen mit SHA-1 sind abgeschaltet.
+- **TLS (FTPS, WebDAV, S3):** Zertifikate werden gegen die Mozilla-Stammzertifikate geprüft, nur TLS 1.2/1.3.
+  Selbstsignierte Zertifikate (typisch bei NAS/Router) werden **nie blind akzeptiert**: Die App zeigt
+  Aussteller, Gültigkeit und SHA-256-Fingerabdruck und merkt sich nach Bestätigung genau dieses
+  Zertifikat (Pinning). Ein anderes Zertifikat löst eine MITM-Warnung aus. Auch die FTPS-Datenkanäle
+  werden verschlüsselt und geprüft.
+- **Klartext-Protokolle** (FTP, WebDAV/S3 über HTTP) sind rot gekennzeichnet und werden erst nach einer
+  Warnung verbunden – oder in den Einstellungen komplett gesperrt. Die Schnellverbindung versucht bei
+  `ftp://` automatisch zuerst verschlüsseltes FTPS. Verbindungen zum eigenen Rechner (`localhost`)
+  sind ausgenommen, da sie das Netzwerk nie verlassen.
+- **WebDAV** folgt keinen Umleitungen zu anderen Servern oder von HTTPS auf HTTP.
+- Passwörter liegen im Schlüsselbund des Betriebssystems; Konfigurationsdateien und zum Bearbeiten
+  geöffnete Dateien sind nur für den eigenen Benutzer lesbar.
+
+> Hinweis: S3-Endpunkte mit selbstsigniertem Zertifikat werden aus Sicherheitsgründen nicht unterstützt
+> (die verwendete S3-Bibliothek erlaubt kein Pinning). Nutze dafür ein gültiges Zertifikat (z. B. Let's Encrypt).
 
 ## Technik
 

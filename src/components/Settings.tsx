@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Info, KeyRound, Monitor, Moon, Settings2, Sun, Trash2, ArrowLeftRight } from "lucide-react";
-import { api, HostKey } from "../lib/api";
+import { Download, Info, KeyRound, Monitor, Moon, Settings2, ShieldCheck, Sun, Trash2, ArrowLeftRight } from "lucide-react";
+import { api, CertInfo, HostKey } from "../lib/api";
 import { Modal, openDialog } from "../lib/dialogs";
 import { t, useT } from "../lib/i18n";
 import { Settings as SettingsType, useStore } from "../lib/store";
@@ -51,9 +51,13 @@ function SettingsDialog({ done }: { done: () => void }) {
   const update = useStore((s) => s.updateSettings);
   const [section, setSection] = useState<Section>("general");
   const [hostKeys, setHostKeys] = useState<HostKey[]>([]);
+  const [certs, setCerts] = useState<CertInfo[]>([]);
 
   useEffect(() => {
-    if (section === "security") api.listHostKeys().then(setHostKeys).catch(showError);
+    if (section === "security") {
+      api.listHostKeys().then(setHostKeys).catch(showError);
+      api.listCertificates().then(setCerts).catch(showError);
+    }
   }, [section]);
 
   const set = (patch: Partial<SettingsType>) => {
@@ -178,6 +182,21 @@ function SettingsDialog({ done }: { done: () => void }) {
 
           {section === "security" && (
             <>
+              <div className="info-box">
+                <ShieldCheck size={16} />
+                <span>{t("settings.securityIntro")}</span>
+              </div>
+              <div className="setting">
+                <span>{t("settings.insecurePolicy")}</span>
+                <select
+                  className="input"
+                  value={settings.insecurePolicy}
+                  onChange={(e) => set({ insecurePolicy: e.target.value as "warn" | "block" })}
+                >
+                  <option value="warn">{t("settings.insecurePolicy.warn")}</option>
+                  <option value="block">{t("settings.insecurePolicy.block")}</option>
+                </select>
+              </div>
               <p className="muted small">
                 {t("settings.secretStore", {
                   store: t(`settings.secretStore.${platform?.secretBackend ?? "system-keychain"}` as any),
@@ -204,6 +223,32 @@ function SettingsDialog({ done }: { done: () => void }) {
                       onClick={async () => {
                         await api.removeHostKey(k.host, k.port).catch(showError);
                         setHostKeys(await api.listHostKeys());
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h4>{t("settings.trustedCerts")}</h4>
+              {certs.length === 0 && <p className="muted small">{t("settings.noTrustedCerts")}</p>}
+              <ul className="hostkeys">
+                {certs.map((c) => (
+                  <li key={`${c.host}:${c.port}`}>
+                    <div>
+                      <b>
+                        {c.host}:{c.port}
+                      </b>
+                      <div className="small">{c.subject}</div>
+                      <div className="mono small muted selectable">{c.fingerprint}</div>
+                      <div className="small muted">{formatDate(c.addedAt)}</div>
+                    </div>
+                    <button
+                      className="icon-btn"
+                      title={t("common.delete")}
+                      onClick={async () => {
+                        await api.removeCertificate(c.host, c.port).catch(showError);
+                        setCerts(await api.listCertificates());
                       }}
                     >
                       <Trash2 size={14} />

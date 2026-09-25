@@ -21,6 +21,9 @@ export interface Settings {
   maxConcurrent: number;
   conflict: "ask" | ConflictPolicy;
   preserveMtime: boolean;
+  /** unencrypted protocols (FTP, HTTP): warn and ask, or block completely */
+  insecurePolicy: "warn" | "block";
+  collapsedFolders: string[];
   panelOpen: boolean;
   panelHeight: number;
   splitRatio: number;
@@ -37,6 +40,8 @@ const DEFAULT_SETTINGS: Settings = {
   maxConcurrent: 3,
   conflict: "ask",
   preserveMtime: true,
+  insecurePolicy: "warn",
+  collapsedFolders: [],
   panelOpen: false,
   panelHeight: 220,
   splitRatio: 0.5,
@@ -80,6 +85,7 @@ export interface DragState {
 interface State {
   platform: PlatformInfo | null;
   sites: Site[];
+  folders: string[];
   tabs: Tab[];
   activeTab: string | null;
   transfers: Record<string, TransferInfo>;
@@ -96,6 +102,7 @@ interface State {
 
   setPlatform: (p: PlatformInfo) => void;
   setSites: (s: Site[]) => void;
+  setFolders: (f: string[]) => void;
   upsertSite: (s: Site) => void;
   removeSite: (id: string) => void;
   addTab: (info: SessionInfo) => void;
@@ -124,6 +131,7 @@ let toastId = 1;
 export const useStore = create<State>((set, get) => ({
   platform: null,
   sites: [],
+  folders: [],
   tabs: [],
   activeTab: null,
   transfers: {},
@@ -139,6 +147,7 @@ export const useStore = create<State>((set, get) => ({
 
   setPlatform: (platform) => set({ platform }),
   setSites: (sites) => set({ sites }),
+  setFolders: (folders) => set({ folders }),
   upsertSite: (site) =>
     set((s) => {
       const idx = s.sites.findIndex((x) => x.id === site.id);

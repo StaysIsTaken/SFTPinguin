@@ -9,9 +9,9 @@ use std::sync::{Arc, RwLock};
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult, ErrorCode};
-use crate::known_hosts::KnownHosts;
 use crate::model::{Capabilities, ConnectConfig, FileEntry, Protocol};
 use crate::remote::{self, RemoteHandle};
+use crate::trust::Trust;
 
 const MAX_POOLED: usize = 8;
 
@@ -27,6 +27,8 @@ pub struct SessionInfo {
     pub home: String,
     pub local_path: String,
     pub capabilities: Capabilities,
+    /// Transport is encrypted and the server identity verified (SSH / TLS)
+    pub encrypted: bool,
 }
 
 pub struct Session {
@@ -41,9 +43,9 @@ impl Session {
     pub async fn open(
         config: ConnectConfig,
         site_id: Option<String>,
-        known_hosts: &KnownHosts,
+        trust: &Trust,
     ) -> AppResult<Arc<Self>> {
-        let conn = remote::connect(&config, known_hosts).await?;
+        let conn = remote::connect(&config, trust).await?;
         let mut home = if config.site.remote_path.trim().is_empty() {
             conn.home().await.unwrap_or_else(|_| "/".to_string())
         } else {
@@ -63,6 +65,7 @@ impl Session {
             home,
             local_path: config.site.local_path.clone(),
             capabilities: conn.capabilities(),
+            encrypted: config.site.insecure_reason().is_none(),
         };
         Ok(Arc::new(Self {
             id,
@@ -73,12 +76,12 @@ impl Session {
         }))
     }
 
-    async fn browse_conn(&self, known_hosts: &KnownHosts) -> AppResult<RemoteHandle> {
+    async fn browse_conn(&self, trust: &Trust) -> AppResult<RemoteHandle> {
         let mut guard = self.browse.lock().await;
         if let Some(conn) = guard.as_ref() {
             return Ok(conn.clone());
         }
-        let conn = remote::connect(&self.config, known_hosts).await?;
+        let conn = remote::connect(&self.config, trust).await?;
         *guard = Some(conn.clone());
         Ok(conn)
     }
@@ -94,17 +97,17 @@ impl Session {
 
     /// Runs an operation on the browse connection. If the connection was lost
     /// (server timeout, network change, ...) it reconnects once and retries.
-    pub async fn run<T, F, Fut>(&self, known_hosts: &KnownHosts, f: F) -> AppResult<T>
+    pub async fn run<T, F, Fut>(&self, trust: &Trust, f: F) -> AppResult<T>
     where
         F: Fn(RemoteHandle) -> Fut,
         Fut: Future<Output = AppResult<T>>,
     {
-        let conn = self.browse_conn(known_hosts).await?;
+        let conn = self.browse_conn(trust).await?;
         match f(conn.clone()).await {
             Err(e) if matches!(e.code, ErrorCode::Connection | ErrorCode::SessionClosed) => {
                 log::info!("connection lost ({e}), reconnecting");
                 self.invalidate_browse(&conn).await;
-                let conn = self.browse_conn(known_hosts).await?;
+                let conn = self.browse_conn(trust).await?;
                 f(conn).await
             }
             other => other,
@@ -112,7 +115,7 @@ impl Session {
     }
 
     /// Takes a connection for a transfer (from the pool or newly opened).
-    pub async fn acquire(&self, known_hosts: &KnownHosts) -> AppResult<RemoteHandle> {
+    pub async fn acquire(&self, trust: &Trust) -> AppResult<RemoteHandle> {
         loop {
             let candidate = self.pool.lock().await.pop();
             match candidate {
@@ -125,7 +128,7 @@ impl Session {
                 None => break,
             }
         }
-        remote::connect(&self.config, known_hosts).await
+        remote::connect(&self.config, trust).await
     }
 
     /// Returns a transfer connection to the pool.
@@ -154,7 +157,7 @@ impl Session {
     /// Returns (dirs, files) with dirs in top-down order.
     pub async fn walk(
         &self,
-        known_hosts: &KnownHosts,
+        trust: &Trust,
         root: &str,
     ) -> AppResult<(Vec<FileEntry>, Vec<FileEntry>)> {
         let mut dirs = Vec::new();
@@ -163,7 +166,7 @@ impl Session {
         while let Some(dir) = stack.pop() {
             let path = dir.clone();
             let entries = self
-                .run(known_hosts, |c| {
+                .run(trust, |c| {
                     let path = path.clone();
                     async move { c.list(&path).await }
                 })

@@ -14,6 +14,7 @@ mod sites;
 mod storage;
 mod tls;
 mod transfer;
+mod trust;
 
 use std::sync::Arc;
 
@@ -23,7 +24,7 @@ pub struct AppState {
     pub app: AppHandle,
     pub sites: sites::SiteStore,
     pub secrets: secrets::SecretStore,
-    pub known_hosts: known_hosts::KnownHosts,
+    pub trust: trust::Trust,
     pub sessions: session::SessionManager,
     pub transfers: transfer::TransferManager,
     pub edits: edit::EditManager,
@@ -45,7 +46,10 @@ pub fn run() {
                 app: app.handle().clone(),
                 sites: sites::SiteStore::load(config_dir.join("sites.json")),
                 secrets: secrets::SecretStore::new(data_dir.join("secrets.json")),
-                known_hosts: known_hosts::KnownHosts::load(config_dir.join("known_hosts.json")),
+                trust: trust::Trust {
+                    hosts: known_hosts::KnownHosts::load(config_dir.join("known_hosts.json")),
+                    certs: tls::CertStore::load(config_dir.join("trusted_certs.json")),
+                },
                 sessions: Default::default(),
                 transfers: Default::default(),
                 edits: Default::default(),
@@ -60,10 +64,18 @@ pub fn run() {
             commands::list_sites,
             commands::save_site,
             commands::delete_site,
+            commands::list_folders,
+            commands::create_folder,
+            commands::rename_folder,
+            commands::delete_folder,
+            commands::move_sites,
             commands::filezilla_default_path,
             commands::import_filezilla,
             commands::trust_host_key,
             commands::list_host_keys,
+            commands::trust_certificate,
+            commands::list_certificates,
+            commands::remove_certificate,
             commands::remove_host_key,
             commands::connect,
             commands::disconnect,

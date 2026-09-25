@@ -38,6 +38,8 @@ russh-sftp = "3"
 suppaftp = { version = "12", features = ["tokio-rustls-ring", "deprecated"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = "1"
+ring = "0.17"
+x509-parser = { version = "0.18", default-features = false }
 # WebDAV
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 # S3

@@ -38,7 +38,7 @@ export interface Site {
   notes: string;
   favorite: boolean;
   passive: boolean;
-  insecureTls: boolean;
+  allowInsecure: boolean;
   region: string;
   endpoint: string;
   pathStyle: boolean;
@@ -67,7 +67,7 @@ export function emptySite(protocol: Protocol = "sftp"): Site {
     notes: "",
     favorite: false,
     passive: true,
-    insecureTls: false,
+    allowInsecure: false,
     region: "",
     endpoint: "",
     pathStyle: false,
@@ -109,6 +109,26 @@ export interface SessionInfo {
   home: string;
   localPath: string;
   capabilities: Capabilities;
+  /** encrypted transport with verified server identity */
+  encrypted: boolean;
+}
+
+export interface CertInfo {
+  host: string;
+  port: number;
+  fingerprint: string;
+  subject: string;
+  issuer: string;
+  notBefore: number | null;
+  notAfter: number | null;
+  addedAt: number;
+}
+
+/** Protocols that send passwords and data in clear text. */
+export function isUnencrypted(site: Pick<Site, "protocol" | "endpoint" | "host">): boolean {
+  if (site.protocol === "ftp" || site.protocol === "webdav") return true;
+  if (site.protocol === "s3") return (site.endpoint || site.host).trim().toLowerCase().startsWith("http://");
+  return false;
 }
 
 export interface HostKey {
@@ -189,6 +209,10 @@ export type ErrorCode =
   | "passphrase_required"
   | "host_key_unknown"
   | "host_key_changed"
+  | "cert_untrusted"
+  | "cert_changed"
+  | "tls_not_supported"
+  | "insecure_connection"
   | "not_found"
   | "permission_denied"
   | "already_exists"
@@ -228,9 +252,24 @@ export const api = {
 
   trustHostKey: (key: HostKey) => invoke<void>("trust_host_key", { key }),
   listHostKeys: () => invoke<HostKey[]>("list_host_keys"),
+  trustCertificate: (cert: CertInfo) => invoke<void>("trust_certificate", { cert }),
+  listCertificates: () => invoke<CertInfo[]>("list_certificates"),
+  removeCertificate: (host: string, port: number) => invoke<void>("remove_certificate", { host, port }),
+
+  listFolders: () => invoke<string[]>("list_folders"),
+  createFolder: (path: string) => invoke<string>("create_folder", { path }),
+  renameFolder: (from: string, to: string) => invoke<void>("rename_folder", { from, to }),
+  deleteFolder: (path: string) => invoke<void>("delete_folder", { path }),
+  moveSites: (ids: string[], folder: string) => invoke<void>("move_sites", { ids, folder }),
   removeHostKey: (host: string, port: number) => invoke<void>("remove_host_key", { host, port }),
 
-  connect: (req: { siteId?: string | null; site?: Site | null; password?: string | null; remember?: boolean }) =>
+  connect: (req: {
+    siteId?: string | null;
+    site?: Site | null;
+    password?: string | null;
+    remember?: boolean;
+    allowInsecure?: boolean;
+  }) =>
     invoke<SessionInfo>("connect", { req }),
   disconnect: (sessionId: string) => invoke<void>("disconnect", { sessionId }),
   listRemote: (sessionId: string, path: string) => invoke<FileEntry[]>("list_remote", { sessionId, path }),
