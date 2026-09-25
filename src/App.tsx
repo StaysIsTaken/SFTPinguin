@@ -188,6 +188,19 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Mouse buttons 4/5 must never trigger the webview's own history navigation
+  useEffect(() => {
+    const block = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    };
+    window.addEventListener("mouseup", block);
+    window.addEventListener("mousedown", block);
+    return () => {
+      window.removeEventListener("mouseup", block);
+      window.removeEventListener("mousedown", block);
+    };
+  }, []);
+
   // Disable the native browser context menu outside of inputs
   useEffect(() => {
     const onCtx = (e: MouseEvent) => {

@@ -2,6 +2,8 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import {
   AlertCircle,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   ChevronRight,
   Copy,
@@ -183,10 +185,42 @@ export function FilePane(props: Props) {
   const selectedSize = selectedEntries.reduce((s, e) => s + (e.kind === "file" ? e.size : 0), 0);
   const isRoot = adapter.parent(path) === path || path === "/" || path === "";
 
-  // ---------------------------------------------------------------- actions
+  // ---------------------------------------------------------------- navigation history
+  // Back / forward like in a browser or file manager (mouse buttons 4 / 5, Alt+← / Alt+→)
+  const [history, setHistory] = useState<{ back: string[]; forward: string[] }>({ back: [], forward: [] });
+
   const navigate = (p: string) => {
-    if (p !== path) onNavigate(p);
+    if (p === path) return;
+    setHistory((h) => ({ back: [...h.back.slice(-99), path], forward: [] }));
+    onNavigate(p);
   };
+
+  const goBack = () => {
+    const prev = history.back[history.back.length - 1];
+    if (prev === undefined) return;
+    setHistory({ back: history.back.slice(0, -1), forward: [path, ...history.forward] });
+    onNavigate(prev);
+  };
+
+  const goForward = () => {
+    const next = history.forward[0];
+    if (next === undefined) return;
+    setHistory({ back: [...history.back, path], forward: history.forward.slice(1) });
+    onNavigate(next);
+  };
+
+  /** Mouse buttons 4 (back) and 5 (forward) – the thumb buttons of most mice. */
+  const onMouseButton = (e: React.MouseEvent) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "mouseup") {
+      if (e.button === 3) goBack();
+      else goForward();
+    }
+  };
+
+  // ---------------------------------------------------------------- actions
 
   const goUp = () => {
     if (!isRoot) navigate(adapter.parent(path));
@@ -309,6 +343,19 @@ export function FilePane(props: Props) {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
     const mod = e.ctrlKey || e.metaKey;
     switch (e.key) {
+      case "BrowserBack":
+        e.preventDefault();
+        return goBack();
+      case "BrowserForward":
+        e.preventDefault();
+        return goForward();
+      case "ArrowLeft":
+      case "ArrowRight":
+        if (e.altKey) {
+          e.preventDefault();
+          return e.key === "ArrowLeft" ? goBack() : goForward();
+        }
+        break;
       case "ArrowDown":
       case "ArrowUp": {
         e.preventDefault();
@@ -363,6 +410,11 @@ export function FilePane(props: Props) {
         } else if (mod && e.key.toLowerCase() === "r") {
           e.preventDefault();
           load({ keepSelection: true });
+        } else if (e.metaKey && (e.key === "[" || e.key === "]")) {
+          // macOS: Cmd+[ / Cmd+]
+          e.preventDefault();
+          if (e.key === "[") goBack();
+          else goForward();
         } else if (mod && e.key.toLowerCase() === "f") {
           e.preventDefault();
           setFilterOpen(true);
@@ -541,6 +593,9 @@ export function FilePane(props: Props) {
       data-drop-path={path}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onMouseDown={onMouseButton}
+      onMouseUp={onMouseButton}
+      onAuxClick={onMouseButton}
     >
       <header className="pane-header">
         <div className="pane-title">
@@ -562,6 +617,12 @@ export function FilePane(props: Props) {
       </header>
 
       <div className="pathbar">
+        <button className="icon-btn" title={t("pane.back")} onClick={goBack} disabled={history.back.length === 0}>
+          <ArrowLeft size={15} />
+        </button>
+        <button className="icon-btn" title={t("pane.forward")} onClick={goForward} disabled={history.forward.length === 0}>
+          <ArrowRight size={15} />
+        </button>
         <button className="icon-btn" title={t("pane.up")} onClick={goUp} disabled={isRoot}>
           <CornerLeftUp size={15} />
         </button>

@@ -39,6 +39,7 @@
 - Änderungsdatum bleibt erhalten, Downloads laufen über `.part`-Dateien
 - Remote-Dateien **direkt bearbeiten**: Datei öffnet sich im Standardprogramm, Änderungen werden erkannt und auf Wunsch hochgeladen
 - Umbenennen, Löschen, neue Ordner/Dateien, Rechte ändern (chmod, auch rekursiv), Pfad kopieren, Filter, Sortierung, versteckte Dateien
+- Zurück/Vor wie im Browser: **Maustasten 4/5 (Daumentasten)**, Alt+←/→ (macOS: Cmd+[ / Cmd+]) oder Pfeil-Knöpfe – für jedes Fenster getrennt
 - Tastatur: Pfeiltasten, Enter, Backspace, Entf, F2, F5, Strg+A, Strg+F, Strg+T/W/Tab, Strg+, und Tipp-Suche
 - Automatisches Wiederverbinden nach Verbindungsabbruch, Protokoll-Ansicht
 
