@@ -1,0 +1,55 @@
+[package]
+name = "sftpinguin"
+version = "0.1.0"
+description = "SFTPinguin – a modern, minimalist file transfer client"
+authors = ["SFTPinguin contributors"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "sftpinguin_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "net", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+async-trait = "0.1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+log = "0.4"
+filetime = "0.2"
+base64 = "0.22"
+percent-encoding = "2"
+quick-xml = "0.42"
+# SSH / SFTP
+russh = "0.63"
+russh-sftp = "3"
+# FTP / FTPS
+suppaftp = { version = "12", features = ["tokio-rustls-ring", "deprecated"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+# WebDAV
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+# S3
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls", "fail-on-err"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+keyring = "4"
+trash = "5"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
