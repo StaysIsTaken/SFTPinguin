@@ -606,9 +606,13 @@ impl TransferManager {
             inner: tokio::io::BufReader::with_capacity(256 * 1024, file),
             job,
         };
-        conn.upload(&mut reader, &target, size)
-            .await
-            .map_err(|e| if job.cancelled() { AppError::cancelled() } else { e })?;
+        conn.upload(&mut reader, &target, size).await.map_err(|e| {
+            if job.cancelled() {
+                AppError::cancelled()
+            } else {
+                e
+            }
+        })?;
         if state.transfers.preserve_mtime.load(Ordering::Relaxed) {
             if let Some(m) = local_mtime {
                 let _ = conn.set_mtime(&target, m).await;
@@ -640,7 +644,10 @@ impl TransferManager {
                         .ok()
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs() as i64);
-                    let remote_secs = remote_meta.as_ref().and_then(|m| m.modified).map(|m| m / 1000);
+                    let remote_secs = remote_meta
+                        .as_ref()
+                        .and_then(|m| m.modified)
+                        .map(|m| m / 1000);
                     if let (Some(l), Some(r)) = (local, remote_secs) {
                         if r <= l {
                             return Ok(false);
@@ -678,7 +685,11 @@ impl TransferManager {
         drop(writer);
         if let Err(e) = result {
             let _ = tokio::fs::remove_file(&part).await;
-            return Err(if job.cancelled() { AppError::cancelled() } else { e });
+            return Err(if job.cancelled() {
+                AppError::cancelled()
+            } else {
+                e
+            });
         }
         tokio::fs::rename(&part, &target).await?;
         if state.transfers.preserve_mtime.load(Ordering::Relaxed) {

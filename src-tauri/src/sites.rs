@@ -33,7 +33,12 @@ impl SiteStore {
     }
 
     pub fn get(&self, id: &str) -> Option<Site> {
-        self.sites.read().unwrap().iter().find(|s| s.id == id).cloned()
+        self.sites
+            .read()
+            .unwrap()
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
     }
 
     /// Inserts or replaces a site. Assigns an id for new sites.
@@ -136,9 +141,10 @@ fn parse_filezilla_str(xml: &str) -> AppResult<Vec<ImportedSite>> {
                     "Server" => fields = Some(Default::default()),
                     "Folder" => folders.push(String::new()),
                     "Pass" => {
-                        pass_base64 = e.attributes().flatten().any(|a| {
-                            a.key.as_ref() == "encoding" && a.value.as_ref() == "base64"
-                        })
+                        pass_base64 = e
+                            .attributes()
+                            .flatten()
+                            .any(|a| a.key.as_ref() == "encoding" && a.value.as_ref() == "base64")
                     }
                     _ => {}
                 }
@@ -237,7 +243,10 @@ fn parse_filezilla_str(xml: &str) -> AppResult<Vec<ImportedSite>> {
             local_path: f.get("LocalDir").cloned().unwrap_or_default(),
             group,
             notes: f.get("Comments").cloned().unwrap_or_default(),
-            passive: f.get("PasvMode").map(|m| m != "MODE_ACTIVE").unwrap_or(true),
+            passive: f
+                .get("PasvMode")
+                .map(|m| m != "MODE_ACTIVE")
+                .unwrap_or(true),
             host,
             ..Site::default()
         };
@@ -297,7 +306,10 @@ mod tests {
 
     #[test]
     fn remote_dir() {
-        assert_eq!(parse_filezilla_remote_dir("1 0 4 home 4 user"), "/home/user");
+        assert_eq!(
+            parse_filezilla_remote_dir("1 0 4 home 4 user"),
+            "/home/user"
+        );
         assert_eq!(parse_filezilla_remote_dir("1 0 6 my dir"), "/my dir");
         assert_eq!(parse_filezilla_remote_dir(""), "");
     }

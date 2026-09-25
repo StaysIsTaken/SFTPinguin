@@ -6,6 +6,9 @@ mod s3;
 mod sftp;
 mod webdav;
 
+#[cfg(test)]
+mod integration_tests;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

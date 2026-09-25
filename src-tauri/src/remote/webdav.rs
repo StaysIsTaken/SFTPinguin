@@ -8,7 +8,7 @@ use quick_xml::Reader as XmlReader;
 use reqwest::{header, Client, Method, StatusCode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{join, RemoteFs, Reader, Writer};
+use super::{join, Reader, RemoteFs, Writer};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::model::{AuthMethod, Capabilities, ConnectConfig, EntryKind, FileEntry, Protocol};
 
@@ -260,15 +260,26 @@ fn parse_multistatus(xml: &str) -> AppResult<Vec<FileEntry>> {
                             let mut path = href.clone();
                             if let Some(idx) = path.find("://") {
                                 let rest = &path[idx + 3..];
-                                path = rest.find('/').map(|i| rest[i..].to_string()).unwrap_or_default();
+                                path = rest
+                                    .find('/')
+                                    .map(|i| rest[i..].to_string())
+                                    .unwrap_or_default();
                             }
                             let decoded = percent_decode_str(&path).decode_utf8_lossy().to_string();
                             let clean = decoded.trim_end_matches('/').to_string();
-                            let clean = if clean.is_empty() { "/".to_string() } else { clean };
+                            let clean = if clean.is_empty() {
+                                "/".to_string()
+                            } else {
+                                clean
+                            };
                             out.push(FileEntry {
                                 name: super::file_name(&clean),
                                 path: clean,
-                                kind: if is_dir { EntryKind::Dir } else { EntryKind::File },
+                                kind: if is_dir {
+                                    EntryKind::Dir
+                                } else {
+                                    EntryKind::File
+                                },
                                 size,
                                 modified,
                                 mode: None,
@@ -325,10 +336,13 @@ impl RemoteFs for WebDavFs {
     }
 
     async fn stat(&self, path: &str) -> AppResult<Option<FileEntry>> {
-        Ok(self
-            .propfind(path, "0")
-            .await?
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) }))
+        Ok(self.propfind(path, "0").await?.and_then(|mut v| {
+            if v.is_empty() {
+                None
+            } else {
+                Some(v.remove(0))
+            }
+        }))
     }
 
     async fn mkdir(&self, path: &str) -> AppResult<()> {
@@ -399,7 +413,8 @@ impl RemoteFs for WebDavFs {
         // Feed the request body from the (borrowed) reader through a channel so that no
         // 'static reader is required; both futures run concurrently in this task.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
-        let body = reqwest::Body::wrap_stream(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
+        let body =
+            reqwest::Body::wrap_stream(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
         let send = self
             .request(Method::PUT, path)
             .header(header::CONTENT_LENGTH, size)
@@ -412,8 +427,7 @@ impl RemoteFs for WebDavFs {
                 if n == 0 {
                     break;
                 }
-                if tx.send(Ok(buf[..n].to_vec())).await.is_err()
-                {
+                if tx.send(Ok(buf[..n].to_vec())).await.is_err() {
                     break; // request finished early (error response)
                 }
             }

@@ -48,7 +48,7 @@ impl KnownHosts {
         }
     }
 
-    pub fn check(&self,host: &str, port: u16, fingerprint: &str) -> HostKeyStatus {
+    pub fn check(&self, host: &str, port: u16, fingerprint: &str) -> HostKeyStatus {
         let entries = self.entries.read().unwrap();
         let mut known = entries
             .iter()

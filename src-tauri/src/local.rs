@@ -174,7 +174,8 @@ pub fn rename(from: &str, to: &str) -> AppResult<()> {
 pub fn delete(paths: &[String], use_trash: bool) -> AppResult<()> {
     #[cfg(not(mobile))]
     if use_trash {
-        return trash::delete_all(paths).map_err(|e| AppError::new(crate::error::ErrorCode::Io, e.to_string()));
+        return trash::delete_all(paths)
+            .map_err(|e| AppError::new(crate::error::ErrorCode::Io, e.to_string()));
     }
     let _ = use_trash;
     for p in paths {
@@ -203,8 +204,11 @@ pub fn chmod(path: &str, mode: u32) -> AppResult<()> {
     }
 }
 
-/// Recursively collects a local directory: (dirs top-down, files).
-pub fn walk(root: &Path) -> AppResult<(Vec<PathBuf>, Vec<(PathBuf, u64)>)> {
+/// Directories (top-down) and files (with size) below a folder.
+pub type Walk = (Vec<PathBuf>, Vec<(PathBuf, u64)>);
+
+/// Recursively collects a local directory.
+pub fn walk(root: &Path) -> AppResult<Walk> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];

@@ -8,7 +8,7 @@ use s3::creds::Credentials;
 use s3::error::S3Error;
 use s3::{Bucket, Region};
 
-use super::{RemoteFs, Reader, Writer};
+use super::{Reader, RemoteFs, Writer};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::model::{Capabilities, ConnectConfig, EntryKind, FileEntry};
 
@@ -140,8 +140,8 @@ impl S3Fs {
     }
 
     fn bucket(&self, name: &str) -> AppResult<Box<Bucket>> {
-        let bucket = Bucket::new(name, self.region.clone(), self.credentials.clone())
-            .map_err(s3_err)?;
+        let bucket =
+            Bucket::new(name, self.region.clone(), self.credentials.clone()).map_err(s3_err)?;
         Ok(if self.path_style {
             bucket.with_path_style()
         } else {
@@ -236,7 +236,11 @@ impl RemoteFs for S3Fs {
                 });
             }
             for obj in page.contents {
-                let name = obj.key.strip_prefix(&prefix).unwrap_or(&obj.key).to_string();
+                let name = obj
+                    .key
+                    .strip_prefix(&prefix)
+                    .unwrap_or(&obj.key)
+                    .to_string();
                 if name.is_empty() || name.ends_with('/') {
                     continue; // directory marker object
                 }
@@ -344,7 +348,9 @@ impl RemoteFs for S3Fs {
         let (fb, fk) = Self::require_key(from)?;
         let (tb, tk) = Self::require_key(to)?;
         if fb != tb {
-            return Err(AppError::unsupported("Moving between buckets is not supported"));
+            return Err(AppError::unsupported(
+                "Moving between buckets is not supported",
+            ));
         }
         if let Some(entry) = self.stat(from).await? {
             if entry.is_dir() {
@@ -354,7 +360,19 @@ impl RemoteFs for S3Fs {
             }
         }
         let bucket = self.bucket(&fb)?;
-        bucket.copy_object_internal(&fk, &tk).await.map_err(s3_err)?;
+        // x-amz-copy-source must be URL encoded (non-ASCII / spaces in keys)
+        let source = fk
+            .split('/')
+            .map(|seg| {
+                percent_encoding::utf8_percent_encode(seg, percent_encoding::NON_ALPHANUMERIC)
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        bucket
+            .copy_object_internal(&source, &tk)
+            .await
+            .map_err(s3_err)?;
         bucket.delete_object(&fk).await.map_err(s3_err)?;
         Ok(())
     }

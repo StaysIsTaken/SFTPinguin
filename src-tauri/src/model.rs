@@ -127,7 +127,9 @@ impl Default for Site {
 
 impl Site {
     pub fn port(&self) -> u16 {
-        self.port.filter(|p| *p != 0).unwrap_or(self.protocol.default_port())
+        self.port
+            .filter(|p| *p != 0)
+            .unwrap_or(self.protocol.default_port())
     }
 
     pub fn display_name(&self) -> String {

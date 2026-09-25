@@ -10,7 +10,7 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use tokio::io::AsyncWriteExt;
 
-use super::{join, RemoteFs, Reader, Writer};
+use super::{join, Reader, RemoteFs, Writer};
 use crate::error::{AppError, AppResult, ErrorCode};
 use crate::known_hosts::{HostKey, HostKeyStatus, KnownHosts};
 use crate::model::{AuthMethod, Capabilities, ConnectConfig, EntryKind, FileEntry};
@@ -248,8 +248,7 @@ async fn authenticate(handle: &mut Handle<ClientHandler>, cfg: &ConnectConfig) -
             Err(auth_failed())
         }
         AuthMethod::Key => {
-            let key = if let Some(data) = cfg.key_data.as_deref().filter(|d| !d.trim().is_empty())
-            {
+            let key = if let Some(data) = cfg.key_data.as_deref().filter(|d| !d.trim().is_empty()) {
                 keys::decode_secret_key(data, cfg.passphrase.as_deref())
             } else if let Some(path) = site.key_path.as_deref().filter(|p| !p.is_empty()) {
                 keys::load_secret_key(expand_tilde(path), cfg.passphrase.as_deref())
@@ -270,7 +269,11 @@ async fn authenticate(handle: &mut Handle<ClientHandler>, cfg: &ConnectConfig) -
                         "Wrong passphrase for the private key",
                     ))
                 }
-                Err(e) => return Err(AppError::invalid(format!("Could not load private key: {e}"))),
+                Err(e) => {
+                    return Err(AppError::invalid(format!(
+                        "Could not load private key: {e}"
+                    )))
+                }
             };
             let hash = handle
                 .best_supported_rsa_hash()

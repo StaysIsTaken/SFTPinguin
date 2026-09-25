@@ -319,18 +319,16 @@ pub async fn connect(state: St<'_>, req: ConnectRequest) -> AppResult<SessionInf
                 }
             }
         }
-        let _ = state
-            .sites
-            .update(id, |s| s.last_used_at = Some(chrono::Utc::now().timestamp_millis()));
+        let _ = state.sites.update(id, |s| {
+            s.last_used_at = Some(chrono::Utc::now().timestamp_millis())
+        });
     }
     Ok(session.info.clone())
 }
 
 #[tauri::command]
 pub async fn disconnect(state: St<'_>, session_id: String) -> AppResult<()> {
-    state
-        .transfers
-        .cancel_where(|t| t.session_id == session_id);
+    state.transfers.cancel_where(|t| t.session_id == session_id);
     state.edits.stop_session(&session_id);
     if let Some(session) = state.sessions.remove(&session_id) {
         session.close().await;
@@ -383,7 +381,12 @@ pub async fn remote_mkdir(state: St<'_>, session_id: String, path: String) -> Ap
             async move { c.mkdir(&path).await }
         })
         .await?;
-    events::log(&state.app, Some(&session_id), LogLevel::Info, format!("Created folder {path}"));
+    events::log(
+        &state.app,
+        Some(&session_id),
+        LogLevel::Info,
+        format!("Created folder {path}"),
+    );
     Ok(())
 }
 
@@ -456,7 +459,12 @@ pub async fn remote_delete(
                     })
                     .await?;
             }
-            for d in dirs.iter().rev().map(|d| d.path.clone()).chain([item.path.clone()]) {
+            for d in dirs
+                .iter()
+                .rev()
+                .map(|d| d.path.clone())
+                .chain([item.path.clone()])
+            {
                 session
                     .run(kh, |c| {
                         let p = d.clone();

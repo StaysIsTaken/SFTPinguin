@@ -47,9 +47,7 @@ impl EditManager {
         let session = state.sessions.get(session_id)?;
         let name = crate::transfer::sanitize_local_name(&crate::remote::file_name(remote_path));
         let id = uuid::Uuid::new_v4().to_string();
-        let dir: PathBuf = std::env::temp_dir()
-            .join("sftpinguin")
-            .join(&id[..8]);
+        let dir: PathBuf = std::env::temp_dir().join("sftpinguin").join(&id[..8]);
         tokio::fs::create_dir_all(&dir).await?;
         let local = dir.join(&name);
 

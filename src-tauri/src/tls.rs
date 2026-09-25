@@ -32,7 +32,12 @@ impl ServerCertVerifier for AcceptAnyCert {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
@@ -41,7 +46,12 @@ impl ServerCertVerifier for AcceptAnyCert {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -49,10 +59,18 @@ impl ServerCertVerifier for AcceptAnyCert {
     }
 }
 
-pub fn client_config(insecure: bool) -> AppResult<Arc<rustls::ClientConfig>> {
+static TLS12_ONLY: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS12];
+
+/// `tls12_only`: FTPS servers such as vsftpd abort TLS 1.3 data connections in the
+/// middle of an upload, so FTPS first tries TLS 1.2 (see `remote::ftp`).
+pub fn client_config(insecure: bool, tls12_only: bool) -> AppResult<Arc<rustls::ClientConfig>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
-        .with_safe_default_protocol_versions()
+        .with_protocol_versions(if tls12_only {
+            TLS12_ONLY
+        } else {
+            rustls::DEFAULT_VERSIONS
+        })
         .map_err(|e| AppError::protocol(format!("TLS: {e}")))?;
     let config = if insecure {
         builder
