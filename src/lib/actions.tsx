@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { ShieldAlert, ShieldQuestion } from "lucide-react";
+import { CalendarClock, CopyPlus, Replace, ShieldAlert, ShieldQuestion, SkipForward } from "lucide-react";
 import {
   api,
   asAppError,
@@ -230,10 +230,10 @@ async function resolvePolicy(conflicts: number): Promise<ConflictPolicy | null> 
     title: t("conflict.title"),
     message: t("conflict.text", { count: conflicts }),
     choices: [
-      { value: "skip", label: t("conflict.skip") },
-      { value: "rename", label: t("conflict.rename") },
-      { value: "newer", label: t("conflict.newer") },
-      { value: "overwrite", label: t("conflict.overwrite"), primary: true },
+      { value: "overwrite", label: t("conflict.overwrite"), hint: t("conflict.overwriteHint"), icon: <Replace size={16} />, primary: true },
+      { value: "newer", label: t("conflict.newer"), hint: t("conflict.newerHint"), icon: <CalendarClock size={16} /> },
+      { value: "skip", label: t("conflict.skip"), hint: t("conflict.skipHint"), icon: <SkipForward size={16} /> },
+      { value: "rename", label: t("conflict.rename"), hint: t("conflict.renameHint"), icon: <CopyPlus size={16} /> },
     ],
   });
   return res ? res.value : null;

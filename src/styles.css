@@ -1432,7 +1432,8 @@ body.dragging .row.dir:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 8px;
+  min-height: 42px;
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
 }
 
@@ -1613,6 +1614,57 @@ body.dragging .row.dir:hover {
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.choice:hover,
+.choice:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice.primary {
+  border-color: var(--accent);
+}
+
+.choice-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.choice-label {
+  font-weight: 600;
+}
+
+.choice-hint {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .choice-row {
@@ -2206,6 +2258,14 @@ body.dragging .row.dir:hover {
   }
 
   .transfer-meta {
-    max-width: 50%;
+    max-width: 55%;
+  }
+
+  .panel.open {
+    max-height: 45vh;
+  }
+
+  .panel-tabs button {
+    padding: 0 8px;
   }
 }

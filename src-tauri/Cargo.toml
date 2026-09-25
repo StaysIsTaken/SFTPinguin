@@ -3,7 +3,6 @@ name = "sftpinguin"
 version = "0.1.0"
 description = "SFTPinguin – a modern, minimalist file transfer client"
 authors = ["SFTPinguin contributors"]
-license = "MIT"
 edition = "2021"
 rust-version = "1.80"
 
@@ -33,16 +32,18 @@ base64 = "0.22"
 percent-encoding = "2"
 quick-xml = "0.42"
 # SSH / SFTP
-russh = "0.63"
+russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3"
 # FTP / FTPS
 suppaftp = { version = "12", features = ["tokio-rustls-ring", "deprecated"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = "1"
 # WebDAV
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 # S3
-rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls", "fail-on-err"] }
+rust-s3 = { version = "0.37", default-features = false, features = ["with-tokio", "fail-on-err"] }
+# TLS for rust-s3's HTTP client (ring based, no platform verifier)
+reqwest012 = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 keyring = "4"

@@ -7,6 +7,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FilePen,
   FilePlus2,
   FolderInput,
   FolderPlus,
@@ -24,7 +25,7 @@ import {
   PlugZap,
 } from "lucide-react";
 import type { FileEntry, Place } from "../lib/api";
-import { useT, TKey } from "../lib/i18n";
+import { resolveLang, useT, TKey } from "../lib/i18n";
 import { DragState, useStore } from "../lib/store";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { errorText, showError } from "../lib/actions";
@@ -97,7 +98,7 @@ export function FilePane(props: Props) {
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
   const mobile = useStore((s) => !!s.platform?.mobile);
-  const lang = settings.language === "en" ? "en" : settings.language === "de" ? "de" : navigator.language;
+  const lang = resolveLang(settings.language);
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -396,7 +397,7 @@ export function FilePane(props: Props) {
     if (single?.kind === "file" && onOpen) {
       items.push({
         label: adapter.side === "remote" && !mobile ? t("pane.editFile") : t("pane.open"),
-        icon: adapter.side === "remote" ? <Pencil size={14} /> : <SquareArrowOutUpRight size={14} />,
+        icon: adapter.side === "remote" && !mobile ? <FilePen size={14} /> : <SquareArrowOutUpRight size={14} />,
         onClick: () => onOpen(single),
       });
     }
@@ -706,7 +707,9 @@ export function FilePane(props: Props) {
         <span className="muted">
           {selectedEntries.length > 0
             ? `${t("pane.selected", { count: selectedEntries.length })}${selectedSize ? ` · ${formatSize(selectedSize, lang)}` : ""}`
-            : t("pane.items", { count: visible.length })}
+            : visible.length === 1
+              ? t("pane.itemsOne")
+              : t("pane.items", { count: visible.length })}
         </span>
         <div className="spacer" />
         {selectedEntries.length > 0 && (

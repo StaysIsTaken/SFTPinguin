@@ -101,7 +101,7 @@ function SiteEditor({
     }
     setSaving(true);
     try {
-      const saved = await api.saveSite(
+      const { site: saved, warning } = await api.saveSite(
         { ...site, host: site.host.trim(), username: site.username.trim() },
         {
           password: password ? password : null,
@@ -110,6 +110,7 @@ function SiteEditor({
         },
       );
       useStore.getState().upsertSite(saved);
+      if (warning) useStore.getState().toast({ kind: "info", message: t("site.passwordNotSaved", { reason: warning }) });
       done({ site: saved, connect });
     } catch (e) {
       showError(e);
@@ -169,11 +170,11 @@ function SiteEditor({
           <div className="radio-row">
             <label className="check">
               <input type="radio" checked={site.protocol === "ftps"} onChange={() => set("protocol", "ftps")} />
-              <span>Explizit (AUTH TLS)</span>
+              <span>{t("site.ftpsExplicit")}</span>
             </label>
             <label className="check">
               <input type="radio" checked={site.protocol === "ftps-implicit"} onChange={() => set("protocol", "ftps-implicit")} />
-              <span>Implizit (Port 990)</span>
+              <span>{t("site.ftpsImplicit")}</span>
             </label>
           </div>
         )}
@@ -243,19 +244,6 @@ function SiteEditor({
           </div>
         )}
 
-        {authOptions.length > 1 && (
-          <label className="field">
-            <span>{t("site.auth")}</span>
-            <select className="input" value={site.auth} onChange={(e) => set("auth", e.target.value as AuthMethod)}>
-              {authOptions.map((a) => (
-                <option key={a} value={a}>
-                  {t(`site.auth.${a}` as any)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
         {site.auth !== "anonymous" && (
           <label className="field">
             <span>{family === "s3" ? t("site.accessKey") : t("site.user")}</span>
@@ -267,6 +255,19 @@ function SiteEditor({
               spellCheck={false}
               onChange={(e) => set("username", e.target.value)}
             />
+          </label>
+        )}
+
+        {authOptions.length > 1 && (
+          <label className="field">
+            <span>{t("site.auth")}</span>
+            <select className="input" value={site.auth} onChange={(e) => set("auth", e.target.value as AuthMethod)}>
+              {authOptions.map((a) => (
+                <option key={a} value={a}>
+                  {t(`site.auth.${a}` as any)}
+                </option>
+              ))}
+            </select>
           </label>
         )}
 

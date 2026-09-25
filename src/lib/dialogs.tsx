@@ -229,57 +229,47 @@ export function passwordDialog(opts: {
   ));
 }
 
+export interface Choice<T extends string> {
+  value: T;
+  label: string;
+  hint?: string;
+  icon?: ReactNode;
+  primary?: boolean;
+}
+
 export function choiceDialog<T extends string>(opts: {
   title: string;
   message?: ReactNode;
-  choices: { value: T; label: string; primary?: boolean }[];
-  remember?: string;
-}): Promise<{ value: T; remember: boolean } | null> {
-  return openDialog((done) => <ChoiceBody opts={opts} done={done} />);
-}
-
-function ChoiceBody<T extends string>({
-  opts,
-  done,
-}: {
-  opts: {
-    title: string;
-    message?: ReactNode;
-    choices: { value: T; label: string; primary?: boolean }[];
-    remember?: string;
-  };
-  done: (v: { value: T; remember: boolean } | null) => void;
-}) {
-  const [remember, setRemember] = useState(false);
-  return (
+  choices: Choice<T>[];
+}): Promise<{ value: T } | null> {
+  return openDialog((done) => (
     <Modal
       title={opts.title}
       onClose={() => done(null)}
+      width={460}
       footer={
-        <div className="choice-row">
-          <button className="btn" onClick={() => done(null)}>
-            {t("common.cancel")}
-          </button>
-          <div className="spacer" />
-          {opts.choices.map((c) => (
-            <button
-              key={c.value}
-              className={`btn ${c.primary ? "btn-primary" : ""}`}
-              onClick={() => done({ value: c.value, remember })}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+        <button className="btn" onClick={() => done(null)}>
+          {t("common.cancel")}
+        </button>
       }
     >
       {opts.message && <div className="dialog-message">{opts.message}</div>}
-      {opts.remember && (
-        <label className="check">
-          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-          <span>{opts.remember}</span>
-        </label>
-      )}
+      <div className="choices">
+        {opts.choices.map((c) => (
+          <button
+            key={c.value}
+            className={`choice ${c.primary ? "primary" : ""}`}
+            autoFocus={c.primary}
+            onClick={() => done({ value: c.value })}
+          >
+            {c.icon && <span className="choice-icon">{c.icon}</span>}
+            <span className="choice-text">
+              <span className="choice-label">{c.label}</span>
+              {c.hint && <span className="choice-hint">{c.hint}</span>}
+            </span>
+          </button>
+        ))}
+      </div>
     </Modal>
-  );
+  ));
 }

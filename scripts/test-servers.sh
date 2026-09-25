@@ -4,6 +4,7 @@
 #   FTP   127.0.0.1:2121  (pyftpdlib, MLSD, anonymous allowed)
 #   FTPS  127.0.0.1:2990  (vsftpd, explicit TLS, self-signed, require_ssl_reuse)
 #   DAV   127.0.0.1:8080  (wsgidav, /dav, basic auth)
+#   DAVS  127.0.0.1:8443  (wsgidav over HTTPS, self-signed)
 #   S3    127.0.0.1:5000  (moto, bucket "testbucket", key testing / testing)
 #
 # Then run:  cd src-tauri && SFTPINGUIN_IT=1 cargo test -- --include-ignored --test-threads=1
@@ -93,6 +94,8 @@ simple_dc:
         password: "secret"
 CFG
 nohup venv/bin/wsgidav --config dav.yaml > dav.log 2>&1 &
+sed -e 's/^port: 8080/port: 8443/' -e "s|^host: 127.0.0.1|host: 127.0.0.1\nssl_certificate: $BASE/ftp.crt\nssl_private_key: $BASE/ftp.key|" dav.yaml > davs.yaml
+nohup venv/bin/wsgidav --config davs.yaml > davs.log 2>&1 &
 nohup venv/bin/moto_server -H 127.0.0.1 -p 5000 > moto.log 2>&1 &
 sleep 3
 curl -s -X PUT http://127.0.0.1:5000/testbucket -o /dev/null

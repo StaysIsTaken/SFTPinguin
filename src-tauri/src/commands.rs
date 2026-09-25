@@ -72,8 +72,20 @@ pub struct SiteSecrets {
     clear_key_data: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSiteResult {
+    site: Site,
+    /// Set when the site was saved but a secret could not be stored
+    warning: Option<String>,
+}
+
 #[tauri::command]
-pub async fn save_site(state: St<'_>, site: Site, secrets: SiteSecrets) -> AppResult<Site> {
+pub async fn save_site(
+    state: St<'_>,
+    site: Site,
+    secrets: SiteSecrets,
+) -> AppResult<SaveSiteResult> {
     let state = state.inner().clone();
     let mut site = site;
     if let Some(existing) = (!site.id.is_empty())
@@ -91,27 +103,36 @@ pub async fn save_site(state: St<'_>, site: Site, secrets: SiteSecrets) -> AppRe
     let mut site = state.sites.upsert(site)?;
     let id = site.id.clone();
 
+    // A missing / locked keychain must not prevent saving the site itself.
     let st = state.clone();
     let save_password = site.save_password;
-    let (has_password, has_key_data) = blocking(move || {
+    let (has_password, has_key_data, warning) = blocking(move || {
         let s = &st.secrets;
+        let mut warning = None;
         let mut has_password = None;
         if !save_password {
-            s.delete(&key_for(&id, "password"))?;
+            let _ = s.delete(&key_for(&id, "password"));
             has_password = Some(false);
         } else if let Some(pw) = secrets.password.filter(|p| !p.is_empty()) {
-            s.set(&key_for(&id, "password"), &pw)?;
-            has_password = Some(true);
+            match s.set(&key_for(&id, "password"), &pw) {
+                Ok(()) => has_password = Some(true),
+                Err(e) => {
+                    has_password = Some(false);
+                    warning = Some(e.message);
+                }
+            }
         }
         let mut has_key = None;
         if secrets.clear_key_data {
-            s.delete(&key_for(&id, "key"))?;
+            let _ = s.delete(&key_for(&id, "key"));
             has_key = Some(false);
         } else if let Some(k) = secrets.key_data.filter(|k| !k.trim().is_empty()) {
-            s.set(&key_for(&id, "key"), &k)?;
-            has_key = Some(true);
+            match s.set(&key_for(&id, "key"), &k) {
+                Ok(()) => has_key = Some(true),
+                Err(e) => warning = Some(e.message),
+            }
         }
-        Ok((has_password, has_key))
+        Ok((has_password, has_key, warning))
     })
     .await?;
 
@@ -127,7 +148,7 @@ pub async fn save_site(state: St<'_>, site: Site, secrets: SiteSecrets) -> AppRe
             site = updated;
         }
     }
-    Ok(site)
+    Ok(SaveSiteResult { site, warning })
 }
 
 #[tauri::command]

@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { api, TransferInfo } from "../lib/api";
-import { useT } from "../lib/i18n";
+import { resolveLang, useT } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { formatEta, formatSize, formatSpeed, formatTime, lparent } from "../lib/format";
 import { showError } from "../lib/actions";
@@ -29,7 +29,7 @@ export function TransferPanel() {
   const order = useStore((s) => s.transferOrder);
   const logs = useStore((s) => s.logs);
   const [tab, setTab] = useState<"transfers" | "log">("transfers");
-  const lang = navigator.language;
+  const lang = useStore((s) => resolveLang(s.settings.language));
 
   const list = useMemo(() => order.map((id) => transfers[id]).filter(Boolean), [order, transfers]);
   const stats = useMemo(() => {
@@ -107,7 +107,7 @@ export function TransferPanel() {
           </button>
         </div>
         {active > 0 && (
-          <div className="panel-summary">
+          <div className="panel-summary hide-narrow">
             <div className="mini-progress">
               <div style={{ width: `${overall}%` }} />
             </div>
@@ -149,7 +149,8 @@ export function TransferPanel() {
               <div className="panel-empty muted">{t("transfers.empty")}</div>
             ) : (
               <div className="transfer-list">
-                {[...list].reverse().map((x) => (
+                {/* newest first; very long queues are capped for rendering speed */}
+                {[...list].reverse().slice(0, 500).map((x) => (
                   <TransferRow key={x.id} x={x} lang={lang} />
                 ))}
               </div>

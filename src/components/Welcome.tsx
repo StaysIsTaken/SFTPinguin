@@ -159,7 +159,7 @@ export function Welcome() {
         {shown.length > 0 && (
           <section className="card">
             <h3>
-              <Clock size={15} /> {t("welcome.recent")}
+              <Clock size={15} /> {recent.length ? t("welcome.recent") : t("sidebar.sites")}
             </h3>
             <div className="recent-grid">
               {shown.map((s) => (

@@ -221,7 +221,7 @@ export const api = {
 
   listSites: () => invoke<Site[]>("list_sites"),
   saveSite: (site: Site, secrets: { password?: string | null; keyData?: string | null; clearKeyData?: boolean }) =>
-    invoke<Site>("save_site", { site, secrets }),
+    invoke<{ site: Site; warning: string | null }>("save_site", { site, secrets }),
   deleteSite: (id: string) => invoke<void>("delete_site", { id }),
   filezillaDefaultPath: () => invoke<string | null>("filezilla_default_path"),
   importFilezilla: (path: string) => invoke<{ imported: number; withPassword: number }>("import_filezilla", { path }),

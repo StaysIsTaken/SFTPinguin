@@ -118,6 +118,7 @@ fn temp_known_hosts() -> KnownHosts {
 }
 
 fn enabled() -> bool {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     std::env::var("SFTPINGUIN_IT").is_ok()
 }
 
@@ -305,4 +306,25 @@ async fn s3() {
         "{buckets:?}"
     );
     exercise(fs, "/testbucket").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn webdav_https() {
+    if !enabled() {
+        return;
+    }
+    let kh = KnownHosts::from_entries(vec![]);
+    let mut s = site(Protocol::Webdavs, 8443);
+    s.host = "localhost".into();
+    s.remote_path = "/dav".into();
+    let err = connect(&cfg(s.clone()), &kh)
+        .await
+        .err()
+        .expect("self-signed must fail");
+    assert_eq!(err.code, ErrorCode::Connection, "{err:?}");
+    assert!(err.message.contains("certificate"), "{}", err.message);
+    s.insecure_tls = true;
+    let fs = connect(&cfg(s), &kh).await.expect("connect webdavs");
+    exercise(fs, "/dav").await;
 }

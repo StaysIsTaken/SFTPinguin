@@ -37,7 +37,7 @@ const DEFAULT_SETTINGS: Settings = {
   maxConcurrent: 3,
   conflict: "ask",
   preserveMtime: true,
-  panelOpen: true,
+  panelOpen: false,
   panelHeight: 220,
   splitRatio: 0.5,
 };

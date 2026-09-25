@@ -595,7 +595,9 @@ impl TransferManager {
                     }
                     ConflictPolicy::Rename => {
                         target = unique_remote(conn, &target).await?;
-                        job.info.lock().unwrap().remote_path = target.clone();
+                        let mut info = job.info.lock().unwrap();
+                        info.remote_path = target.clone();
+                        info.name = remote::file_name(&target);
                     }
                     ConflictPolicy::Overwrite => {}
                 }
@@ -656,7 +658,11 @@ impl TransferManager {
                 }
                 ConflictPolicy::Rename => {
                     target = unique_local(&target);
-                    job.info.lock().unwrap().local_path = target.to_string_lossy().to_string();
+                    let mut info = job.info.lock().unwrap();
+                    info.local_path = target.to_string_lossy().to_string();
+                    if let Some(name) = target.file_name() {
+                        info.name = name.to_string_lossy().to_string();
+                    }
                 }
             }
         }

@@ -81,6 +81,7 @@ export function Sidebar({ onQuickConnect }: { onQuickConnect: () => void }) {
     const favs = filtered.filter((s) => s.favorite);
     if (favs.length) map.set("\u0000fav", favs);
     for (const s of filtered) {
+      if (s.favorite) continue; // shown in the favorites section only
       const g = s.group || "";
       if (!map.has(g)) map.set(g, []);
       map.get(g)!.push(s);
@@ -109,11 +110,11 @@ export function Sidebar({ onQuickConnect }: { onQuickConnect: () => void }) {
         },
       },
       {
-        label: site.favorite ? "★" : "☆",
+        label: site.favorite ? t("site.favoriteRemove") : t("site.favoriteAdd"),
         icon: <Star size={14} />,
         onClick: async () => {
-          const saved = await api.saveSite({ ...site, favorite: !site.favorite }, {}).catch(showError);
-          if (saved) useStore.getState().upsertSite(saved);
+          const res = await api.saveSite({ ...site, favorite: !site.favorite }, {}).catch(showError);
+          if (res) useStore.getState().upsertSite(res.site);
         },
       },
       { separator: true },

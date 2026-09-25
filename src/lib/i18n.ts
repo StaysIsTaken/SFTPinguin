@@ -2,6 +2,16 @@ import { useStore } from "./store";
 
 const de = {
   "app.tagline": "Dateien übertragen – einfach, schnell, sicher.",
+  "pane.itemsOne": "1 Element",
+  "site.passwordNotSaved": "Server gespeichert – das Passwort konnte aber nicht im Schlüsselbund abgelegt werden und wird beim Verbinden abgefragt. ({reason})",
+  "site.ftpsExplicit": "Explizit (AUTH TLS)",
+  "site.ftpsImplicit": "Implizit (Port 990)",
+  "site.favoriteAdd": "Zu Favoriten",
+  "site.favoriteRemove": "Aus Favoriten entfernen",
+  "conflict.overwriteHint": "Vorhandene Dateien ersetzen",
+  "conflict.skipHint": "Vorhandene Dateien behalten, nur neue übertragen",
+  "conflict.newerHint": "Nur ersetzen, wenn die Quelle neuer ist",
+  "conflict.renameHint": "Neue Datei als „name (1).ext“ speichern",
   "common.cancel": "Abbrechen",
   "common.save": "Speichern",
   "common.ok": "OK",
@@ -242,6 +252,16 @@ export type TKey = keyof Dict;
 
 const en: Dict = {
   "app.tagline": "Transfer files – simple, fast, secure.",
+  "pane.itemsOne": "1 item",
+  "site.passwordNotSaved": "Server saved – but the password could not be stored in the keychain and will be asked for when connecting. ({reason})",
+  "site.ftpsExplicit": "Explicit (AUTH TLS)",
+  "site.ftpsImplicit": "Implicit (port 990)",
+  "site.favoriteAdd": "Add to favorites",
+  "site.favoriteRemove": "Remove from favorites",
+  "conflict.overwriteHint": "Replace existing files",
+  "conflict.skipHint": "Keep existing files, only transfer new ones",
+  "conflict.newerHint": "Only replace when the source is newer",
+  "conflict.renameHint": "Save the new file as “name (1).ext”",
   "common.cancel": "Cancel",
   "common.save": "Save",
   "common.ok": "OK",

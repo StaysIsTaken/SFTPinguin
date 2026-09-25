@@ -53,10 +53,20 @@ pub struct WebDavFs {
 }
 
 fn http_err(e: reqwest::Error) -> AppError {
+    // include the root cause (e.g. "invalid peer certificate: UnknownIssuer")
+    let mut msg = e.to_string();
+    let mut source = std::error::Error::source(&e);
+    while let Some(s) = source {
+        let text = s.to_string();
+        if !msg.contains(&text) {
+            msg = format!("{msg}: {text}");
+        }
+        source = s.source();
+    }
     if e.is_timeout() || e.is_connect() {
-        AppError::connection(e.to_string())
+        AppError::connection(msg)
     } else {
-        AppError::protocol(e.to_string())
+        AppError::protocol(msg)
     }
 }
 
@@ -109,7 +119,12 @@ impl WebDavFs {
         let client = Client::builder()
             .user_agent(concat!("SFTPinguin/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(site.timeout.clamp(3, 300)))
-            .tls_danger_accept_invalid_certs(site.insecure_tls)
+            // webpki roots + ring: works identically on desktop and mobile
+            .tls_backend_preconfigured(
+                crate::tls::client_config(site.insecure_tls, false)?
+                    .as_ref()
+                    .clone(),
+            )
             .build()
             .map_err(http_err)?;
 
