@@ -59,8 +59,15 @@ pub trait RemoteFs: Send + Sync {
     /// Streams `source` (of `size` bytes) into the remote file, replacing it.
     async fn upload(&self, source: Reader<'_>, path: &str, size: u64) -> AppResult<()>;
 
-    /// Cheap liveness check (used before reusing pooled connections).
+    /// Cheap liveness check (used before reusing pooled connections and by the
+    /// session monitor).
     async fn is_alive(&self) -> bool;
+
+    /// How often the session monitor should check a connection that the server can
+    /// close (idle timeout, restart, network loss). `None` for stateless protocols.
+    fn liveness_interval(&self) -> Option<std::time::Duration> {
+        None
+    }
 
     async fn close(&self);
 }

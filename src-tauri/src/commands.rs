@@ -389,7 +389,14 @@ pub async fn connect(state: St<'_>, req: ConnectRequest) -> AppResult<SessionInf
             site.port()
         ),
     );
-    let session = match Session::open(config, req.site_id.clone(), &state.trust).await {
+    let session = match Session::open(
+        config,
+        req.site_id.clone(),
+        &state.trust,
+        state.sessions.wake.clone(),
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => {
             match e.code {
@@ -432,17 +439,7 @@ pub async fn connect(state: St<'_>, req: ConnectRequest) -> AppResult<SessionInf
 
 #[tauri::command]
 pub async fn disconnect(state: St<'_>, session_id: String) -> AppResult<()> {
-    state.transfers.cancel_where(|t| t.session_id == session_id);
-    state.edits.stop_session(&session_id);
-    if let Some(session) = state.sessions.remove(&session_id) {
-        session.close().await;
-        events::log(
-            &state.app,
-            Some(&session_id),
-            LogLevel::Info,
-            format!("Disconnected from {}", session.info.title),
-        );
-    }
+    crate::session::end_session(state.inner(), &session_id, None).await;
     Ok(())
 }
 

@@ -429,7 +429,25 @@ impl RemoteFs for FtpFs {
     }
 
     async fn is_alive(&self) -> bool {
-        with_conn!(self, s => s.noop().await.is_ok())
+        // A connection that is busy with a command is alive by definition; don't queue
+        // a NOOP behind a long listing or transfer.
+        let Ok(mut guard) = self.conn.try_lock() else {
+            return true;
+        };
+        let noop = async {
+            match &mut *guard {
+                Conn::Plain(s) => s.noop().await.is_ok(),
+                Conn::Tls(s) => s.noop().await.is_ok(),
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(15), noop)
+            .await
+            .unwrap_or(false)
+    }
+
+    fn liveness_interval(&self) -> Option<Duration> {
+        // NOOP every 20 s also prevents the server's idle timeout
+        Some(Duration::from_secs(20))
     }
 
     async fn close(&self) {

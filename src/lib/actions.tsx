@@ -53,6 +53,13 @@ export function syncTransferOptions() {
 // Connecting
 // ---------------------------------------------------------------------------
 
+function isLoopbackHost(raw: string): boolean {
+  let host = raw.trim().replace(/^[a-z0-9+.-]+:\/\//i, "").split("/")[0];
+  if (host.startsWith("[")) host = host.slice(1, host.indexOf("]"));
+  else if ((host.match(/:/g) ?? []).length === 1) host = host.split(":")[0];
+  return host.toLowerCase() === "localhost" || /^127\./.test(host) || host === "::1";
+}
+
 /**
  * Connects to a saved site (siteId) or an ad-hoc site. Handles host key and certificate
  * confirmation, unencrypted-connection warnings and password prompts.
@@ -82,6 +89,11 @@ export async function connectTo(target: {
   let lastError: AppError | null = null;
 
   const askInsecure = async (kind: "ftp" | "http" | "no_tls") => {
+    // traffic to this computer never leaves it (same rule as in the backend)
+    if (isLoopbackHost(site.host)) {
+      allowInsecure = true;
+      return true;
+    }
     if (useStore.getState().settings.insecurePolicy === "block") {
       throw { code: "insecure_connection", message: t("insecure.blocked") } as AppError;
     }
@@ -219,6 +231,26 @@ export async function closeTab(tabId: string) {
   }
   quickSites.delete(tabId);
   useStore.getState().closeTab(tabId);
+}
+
+/** The server or the network ended a session: inform the user and close its tab. */
+function onSessionClosed(ev: { sessionId: string; title: string; reason: string }) {
+  const store = useStore.getState();
+  const tab = store.tabs.find((t) => t.info.id === ev.sessionId);
+  if (!tab) return; // the user closed it already
+  const target = tab.info.siteId ? { siteId: tab.info.siteId } : quickSites.get(tab.id);
+  quickSites.delete(tab.id);
+  store.closeTab(tab.id);
+  const reason =
+    ev.reason === "The server closed the connection" ? t("session.closedByServer") : ev.reason;
+  store.toast({
+    kind: "error",
+    sticky: true,
+    message: `${t("session.closed", { name: ev.title })} ${reason}`,
+    action: target
+      ? { label: t("session.reconnect"), run: () => void openSession(target) }
+      : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +399,9 @@ export async function initBackend() {
   });
   await listen<TransferInfo[]>("transfers-added", (e) => useStore.getState().upsertTransfers(e.payload));
   await listen<TransferProgress[]>("transfer-progress", (e) => useStore.getState().applyProgress(e.payload));
+  await listen<{ sessionId: string; title: string; reason: string }>("session-closed", (e) =>
+    onSessionClosed(e.payload),
+  );
   await listen<EditedFile>("edit-changed", (e) => {
     const file = e.payload;
     useStore.getState().toast({

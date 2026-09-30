@@ -41,7 +41,8 @@
 - Umbenennen, Löschen, neue Ordner/Dateien, Rechte ändern (chmod, auch rekursiv), Pfad kopieren, Filter, Sortierung, versteckte Dateien
 - Zurück/Vor wie im Browser: **Maustasten 4/5 (Daumentasten)**, Alt+←/→ (macOS: Cmd+[ / Cmd+]) oder Pfeil-Knöpfe – für jedes Fenster getrennt
 - Tastatur: Pfeiltasten, Enter, Backspace, Entf, F2, F5, Strg+A, Strg+F, Strg+T/W/Tab, Strg+, und Tipp-Suche
-- Automatisches Wiederverbinden nach Verbindungsabbruch, Protokoll-Ansicht
+- Beendet der Server die Verbindung (Zeitüberschreitung, Neustart, Netzwerkausfall), meldet die App das sofort, schließt den Tab und bietet „Neu verbinden“ an; FTP-Verbindungen werden per NOOP wach gehalten
+- Protokoll-Ansicht
 
 **Oberfläche**
 - Hell/Dunkel (oder automatisch), sechs Akzentfarben

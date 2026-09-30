@@ -56,7 +56,8 @@ pub fn run() {
             });
             app.manage(state.clone());
             transfer::TransferManager::start_progress_ticker(state.clone());
-            edit::EditManager::start_watcher(state);
+            edit::EditManager::start_watcher(state.clone());
+            session::start_monitor(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

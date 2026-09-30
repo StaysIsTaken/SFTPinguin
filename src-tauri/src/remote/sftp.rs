@@ -599,6 +599,11 @@ impl RemoteFs for SftpFs {
         !self.handle.is_closed()
     }
 
+    fn liveness_interval(&self) -> Option<Duration> {
+        // purely local check; the SSH keepalive detects dead peers
+        Some(Duration::from_secs(3))
+    }
+
     async fn close(&self) {
         let _ = self.sftp.close().await;
         let _ = self
